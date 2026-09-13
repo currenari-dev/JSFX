@@ -1,0 +1,1244 @@
+desc: Acoustic Resonator (CURS)
+author: Currenari Sounds
+version: 2.9.4
+link:
+  Website https://currenari.com
+  GitHub https://github.com/currenari-dev/CURS-jsfx
+screenshot: Screenshot https://raw.githubusercontent.com/currenari-dev/CURS-jsfx/main/screenshot.png
+about:
+  # Acoustic Resonator (CURS)
+
+  8-mode acoustic resonator and synthesizer for sound design, ambient scoring, and organic production.
+
+  ## Key Features:
+  - 8 tuned resonance modes with decay control
+  - 17 calibrated acoustic materials (terracotta pots, bronze bowls, tone woods, bells, organ pipes)
+  - 16 calibrated presets
+  - Excitation engine: mallet strike, sustained bowed friction (MIDI + CC64 sustain), or audio input
+  - 16-tap Velvet Cloud diffuser and sub foundation
+  - Real-time Chladni dial and spectrum display
+  - True Peak safety limiter (<= -3.0 dBFS)
+  - Cross-platform support (Linux, macOS, Windows) across all sample rates (44.1 kHz - 192 kHz)
+
+desc: Acoustic Resonator (CURS)
+// @author Currenari Sounds
+// @version 2.9.4
+// @changelog
+//   - Initial release of Acoustic Resonator (CURS)
+//   - 8-mode calibrated modal bank
+//   - 17 acoustic materials and 16 presets
+//   - 16-tap Velvet Cloud diffuser
+//   - Mallet strike and bowed friction synthesis engine
+//   - Real-time Chladni dial and live spectrum display
+//   - True Peak limiter <= -3.0 dBFS
+// @link Website https://currenari.com
+// @description Acoustic Resonator & Synthesizer
+// @about
+//   # Acoustic Resonator (CURS)
+//   Acoustic Resonator & Synthesizer by Currenari Sounds.
+//   
+//   Features 8-mode modal bank, 17 acoustic materials, 16 presets,
+//   mallet strike and bowed friction synthesis engine, 16-tap Velvet Cloud diffuser,
+//   sub foundation, True Peak -3.0 dBFS ceiling, and real-time Chladni visualizer.
+// @provides
+//   [effect] acoustic_resonator
+
+in_pin:Left Input (Source Audio)
+in_pin:Right Input (Source Audio)
+out_pin:Left Output
+out_pin:Right Output
+
+// --- SECTION 1: MASTER PRESET & TUNING ---
+slider1:8<0,16,1{00: Manual / Custom,01: Terracotta Chamber (Warm Ceramic Resonance),02: Singing Bronze Bowl (Harmonic Tibetan Ring),03: Cathedral Vault (Spacious Acoustic Reverb),04: Resonant Spruce Timber (Acoustic Guitar/Harp Body),05: Quartz Glass Chime (Crystalline Ring),06: Foley Velvet Diffuser (Acoustic Texture Smear),07: Solid Oak Soundboard (Punchy Midrange Body),08: Nordic Bowed Tagelharpa (Bowed Horsehair Cello),09: Gothic Chamber Cello (Rich Low-End Sustain),10: Petrified Bog Ash (Dense Woody Drone),11: Hardwood Rim Percussion (Tight Transient Attack),12: Basalt Cavern Crypt (Dark Subterranean Space),13: Cast Gothic Bronze Bell (Tolling Overtone Chime),14: Forged Carnyx War Horn (Acoustic Brass Drive),15: 32ft Sub Organ Pipe (Deep Physical Sub Bass),16: Scandinavian Pine Lyre (Organic Plucked Cavity)}>Preset
+slider2:50<0,100,1>Harmonic Spread
+slider3:0<-24,24,1>Pitch Shift
+slider4:82<10,100,1>Resonance Decay
+
+// --- SECTION 2: DYNAMIC LEVELER & HARMONIC BODY ---
+slider5:75<0,100,1>Exciter Level
+slider6:60<0,100,1>Harmonic Warmth
+slider7:4500<60,20000,10>Cutoff
+
+// --- SECTION 3: VELVET CLOUD DIFFUSION & LIVING BREATH ---
+slider8:65<0,100,1>Diffusion
+slider9:55<10,100,1>Room Size
+slider10:50<0,100,1>Living Breath
+slider11:85<0,100,1>Stereo Width
+
+// --- SECTION 4: MASTER MIX & OUTPUT ---
+slider12:100<0,100,1>Mix
+slider13:0<-60,12,0.1>Output Gain
+slider14:0<0,1,1{Ready,RESET}>Reset
+
+// --- SECTION 5: ACOUSTIC MATERIAL & EMDR BILATERAL ---
+slider15:6<0,16,1{Terracotta Ceramic Pot (Eigenmodes),Hand-Hammered Singing Bronze (180 Hz),Quartz Crystal Glass Harmonica (220 Hz / A3),Hollow Resonant Spruce Body (110 Hz / A2),Celtic Drone Wood (Low B 61.7 Hz / B1),Aged Hollow Oak Timber (58.2 Hz / A#1),Nordic Pine Tagelharpa Body (55.0 Hz / A1),Hollow Eucalyptus Didgeridoo (73.4 Hz / D2),Gothic Chamber Cello (65.4 Hz / C2),Petrified Bog Ash Log (51.9 Hz / G#1),Resonant Cedar Frame Rim (69.3 Hz / C#2),Rosewood Marimba Bar (82.4 Hz / E2),Basalt Stone Cavern Chamber (48.0 Hz),Tolling Cast Cathedral Bell (110 Hz / A2),Forged Celtic Carnyx War Horn (87.3 Hz / F2),Subterranean 32ft Organ Pipe (32.7 Hz / C1),Scandinavian Pine Lyre Cavity (73.4 Hz / D2)}>Acoustic Material
+slider16:35<0,100,1>Bilateral Depth
+slider17:0.25<0.05,2.00,0.02>Bilateral Speed
+slider18:40<0,100,1>Sub Foundation
+
+// --- SECTION 6: MIDI & PHYSICAL EXCITATION ENGINE ---
+slider19:0<0,3,1{Auto / Hybrid (Audio + MIDI),Audio Input Only,MIDI Mallet Strike,MIDI Bowed Friction}>Excitation Mode
+slider20:75<0,100,1>Mallet Hardness
+
+@init
+sr = (srate > 0) ? srate : 44100;
+dt = 1.0 / sr;
+PI = 3.141592653589793;
+TWO_PI = 6.283185307179586;
+LN2 = 0.6931471805599453;
+CEIL_LIMIT = 0.707945784; // -3.0 dBFS Peak Safety Standard
+
+// 17 Authentic Physical Acoustic Materials
+v_base = 1000;
+v_base[0] = 953.6;  v_base[1] = 1377.0; v_base[2] = 1728.5; v_base[3] = 2855.0;
+v_base[4] = 3567.6; v_base[5] = 3978.5; v_base[6] = 4333.0; v_base[7] = 4770.3;
+
+v_base = 1010;
+v_base[0] = 180.0;  v_base[1] = 496.8;  v_base[2] = 972.0;  v_base[3] = 1607.4;
+v_base[4] = 2401.2; v_base[5] = 3355.2; v_base[6] = 4465.8; v_base[7] = 5733.0;
+
+v_base = 1020;
+v_base[0] = 220.0;  v_base[1] = 506.0;  v_base[2] = 913.0;  v_base[3] = 1412.4;
+v_base[4] = 2013.0; v_base[5] = 2712.6; v_base[6] = 3511.2; v_base[7] = 4408.8;
+
+v_base = 1030;
+v_base[0] = 110.0;  v_base[1] = 330.0;  v_base[2] = 550.0;  v_base[3] = 770.0;
+v_base[4] = 990.0;  v_base[5] = 1210.0; v_base[6] = 1430.0; v_base[7] = 1650.0;
+
+v_base = 1040;
+v_base[0] = 61.7;   v_base[1] = 123.4;  v_base[2] = 185.1;  v_base[3] = 246.9;
+v_base[4] = 370.4;  v_base[5] = 493.8;  v_base[6] = 617.3;  v_base[7] = 740.7;
+
+v_base = 1050;
+v_base[0] = 58.2;   v_base[1] = 116.5;  v_base[2] = 174.8;  v_base[3] = 233.0;
+v_base[4] = 349.5;  v_base[5] = 466.0;  v_base[6] = 582.5;  v_base[7] = 699.0;
+
+v_base = 1060;
+v_base[0] = 55.0;   v_base[1] = 110.0;  v_base[2] = 165.0;  v_base[3] = 220.0;
+v_base[4] = 330.0;  v_base[5] = 440.0;  v_base[6] = 550.0;  v_base[7] = 660.0;
+
+v_base = 1070;
+v_base[0] = 73.4;   v_base[1] = 220.2;  v_base[2] = 367.0;  v_base[3] = 513.8;
+v_base[4] = 660.6;  v_base[5] = 807.4;  v_base[6] = 954.2;  v_base[7] = 1101.0;
+
+v_base = 1080;
+v_base[0] = 65.4;   v_base[1] = 127.5;  v_base[2] = 186.4;  v_base[3] = 249.8;
+v_base[4] = 320.5;  v_base[5] = 398.9;  v_base[6] = 487.2;  v_base[7] = 582.1;
+
+v_base = 1090;
+v_base[0] = 51.9;   v_base[1] = 103.8;  v_base[2] = 155.7;  v_base[3] = 207.6;
+v_base[4] = 311.4;  v_base[5] = 415.2;  v_base[6] = 519.0;  v_base[7] = 622.8;
+
+v_base = 1100;
+v_base[0] = 69.3;   v_base[1] = 115.5;  v_base[2] = 173.3;  v_base[3] = 238.1;
+v_base[4] = 311.9;  v_base[5] = 415.8;  v_base[6] = 554.4;  v_base[7] = 693.0;
+
+v_base = 1110;
+v_base[0] = 82.4;   v_base[1] = 247.2;  v_base[2] = 412.0;  v_base[3] = 659.2;
+v_base[4] = 824.0;  v_base[5] = 1071.2; v_base[6] = 1318.4; v_base[7] = 1648.0;
+
+v_base = 1120;
+v_base[0] = 48.0;   v_base[1] = 63.8;   v_base[2] = 75.8;   v_base[3] = 96.0;
+v_base[4] = 113.8;  v_base[5] = 131.5;  v_base[6] = 151.7;  v_base[7] = 170.4;
+
+v_base = 1130;
+v_base[0] = 110.0;  v_base[1] = 220.0;  v_base[2] = 324.5;  v_base[3] = 456.5;
+v_base[4] = 643.5;  v_base[5] = 869.0;  v_base[6] = 1149.5; v_base[7] = 1485.0;
+
+v_base = 1140;
+v_base[0] = 87.3;   v_base[1] = 174.6;  v_base[2] = 261.9;  v_base[3] = 349.2;
+v_base[4] = 523.8;  v_base[5] = 698.4;  v_base[6] = 873.0;  v_base[7] = 1047.6;
+
+v_base = 1150;
+v_base[0] = 32.7;   v_base[1] = 65.4;   v_base[2] = 98.1;   v_base[3] = 130.8;
+v_base[4] = 163.5;  v_base[5] = 196.2;  v_base[6] = 228.9;  v_base[7] = 261.6;
+
+v_base = 1160;
+v_base[0] = 73.4;   v_base[1] = 146.8;  v_base[2] = 196.0;  v_base[3] = 220.0;
+v_base[4] = 293.7;  v_base[5] = 392.0;  v_base[6] = 440.0;  v_base[7] = 587.4;
+
+pan_weights = 1950;
+pan_weights[0] =  0.00; pan_weights[1] = -0.22;
+pan_weights[2] =  0.22; pan_weights[3] = -0.32;
+pan_weights[4] =  0.32; pan_weights[5] = -0.42;
+pan_weights[6] =  0.42; pan_weights[7] =  0.00;
+
+memset(2000, 0, 8000);
+
+// 16-Tap Prime Velvet Scattering Diffusion Matrix
+diff_taps_l = 15000; diff_taps_r = 15020; diff_gains_l = 15040; diff_gains_r = 15060;
+diff_taps_l[0] = 17.3; diff_taps_l[1] = 31.1; diff_taps_l[2] = 47.9; diff_taps_l[3] = 67.3;
+diff_taps_l[4] = 89.7; diff_taps_l[5] = 113.9; diff_taps_l[6] = 142.3; diff_taps_l[7] = 173.9;
+
+diff_taps_r[0] = 19.7; diff_taps_r[1] = 34.7; diff_taps_r[2] = 52.3; diff_taps_r[3] = 73.1;
+diff_taps_r[4] = 95.3; diff_taps_r[5] = 121.7; diff_taps_r[6] = 149.9; diff_taps_r[7] = 181.1;
+
+diff_gains_l[0] = 0.5313; diff_gains_l[1] = -0.4722; diff_gains_l[2] = 0.4132; diff_gains_l[3] = -0.3542;
+diff_gains_l[4] = 0.2951; diff_gains_l[5] = -0.2361; diff_gains_l[6] = 0.1889; diff_gains_l[7] = -0.1417;
+
+diff_gains_r[0] = -0.5313; diff_gains_r[1] = 0.4722; diff_gains_r[2] = -0.4132; diff_gains_r[3] = 0.3542;
+diff_gains_r[4] = -0.2951; diff_gains_r[5] = 0.2361; diff_gains_r[6] = -0.1889; diff_gains_r[7] = 0.1417;
+
+// Dedicated Non-Overlapping 64k Delay Buffers (Full 192 kHz Ready)
+BUF_LEN = 65536;
+BUF_MASK = 65535;
+d_buf_l = 20000;
+d_buf_r = 100000;
+memset(20000, 0, 65536);
+memset(100000, 0, 65536);
+d_wptr = 0;
+d_lp_l = 0.0;
+d_lp_r = 0.0;
+
+dc_alpha = (TWO_PI * 5.0) / sr;
+in_dc_l = 0.0; in_dc_r = 0.0;
+
+lp1_s1_l = 0.0; lp1_s2_l = 0.0;
+lp2_s1_l = 0.0; lp2_s2_l = 0.0;
+lp1_s1_r = 0.0; lp1_s2_r = 0.0;
+lp2_s1_r = 0.0; lp2_s2_r = 0.0;
+
+hp_sub_s1_l = 0.0; hp_sub_s2_l = 0.0;
+hp_sub_s1_r = 0.0; hp_sub_s2_r = 0.0;
+
+w_sub = PI * 22.0 / sr;
+g_sub = tan(w_sub);
+d_sub = 1.41421356;
+h_sub = 1.0 / (1.0 + d_sub * g_sub + g_sub * g_sub);
+
+slew_gain = 1.0;
+slew_mix = 1.0;
+slew_res_q = 82.0;
+slew_cutoff = 4500.0;
+slew_diff_amt = 0.65;
+slew_room_size = 0.55;
+slew_emdr_depth = 0.35;
+slew_emdr_speed = 0.25;
+slew_voice2 = 0.40;
+slew_spread = 1.00;
+slew_warmth = 0.60;
+slew_excite_gain = 1.0;
+slew_breath = 0.50;
+slew_pitch = 0.0;
+
+lim_env = 0.0;
+slew_lim_gain = 1.0;
+
+// Hann-Windowed Mallet & Pink Friction Engine State
+mallet_phase = 1.0;
+mallet_dur = 0.002;
+mallet_inc = 0.0;
+mallet_amp = 0.0;
+mallet_active = 0;
+
+bow_env = 0.0;
+bow_noise = 12345;
+bow_pink = 0.0;
+
+mallet_lp_l = 0.0; mallet_lp_r = 0.0;
+sub_phase = 0.0;
+sub_env_follow = 0.0;
+
+scope_buf = 200000;
+memset(200000, 0, 1024);
+scope_ptr = 0;
+
+lfo_phase = 0.0;
+emdr_phase = 0.0;
+chladni_rot = 0.0;
+
+midi_note = -1;
+midi_vel = 0.75;
+midi_gate = 0;
+key_down = 0;
+active_pitch_freq = 0.0;
+midi_target_freq = 0.0;
+midi_pitchbend = 0.0;
+sustain_pedal = 0;
+last_preset = -1;
+preset_just_loaded = 0;
+prev_s2 = -1;
+
+@slider
+(slider14 == 1) ? (
+  slider1 = 8; slider2 = 50; slider3 = 0; slider4 = 82;
+  slider5 = 75; slider6 = 60; slider7 = 4500;
+  slider8 = 65; slider9 = 55; slider10 = 50; slider11 = 85;
+  slider12 = 100; slider13 = 0; slider14 = 0; slider15 = 6;
+  slider16 = 35; slider17 = 0.25; slider18 = 40;
+  slider19 = 0; slider20 = 75;
+  active_pitch_freq = 0.0;
+  last_preset = 8;
+  preset_just_loaded = 1;
+);
+
+(slider1 != last_preset && slider1 > 0) ? (
+  (slider1 == 1) ? (
+    slider2 = 45; slider3 = 0; slider4 = 70;
+    slider5 = 75; slider6 = 75; slider7 = 4000;
+    slider8 = 55; slider9 = 45; slider10 = 40; slider11 = 85;
+    slider12 = 100; slider13 = 0.0; slider15 = 0;
+    slider16 = 35; slider17 = 0.30; slider18 = 40;
+    slider19 = 0; slider20 = 75;
+  ) : (slider1 == 2) ? (
+    slider2 = 70; slider3 = 0; slider4 = 85;
+    slider5 = 65; slider6 = 35; slider7 = 7500;
+    slider8 = 70; slider9 = 65; slider10 = 40; slider11 = 95;
+    slider12 = 100; slider13 = 0.0; slider15 = 1;
+    slider16 = 45; slider17 = 0.20; slider18 = 25;
+    slider19 = 0; slider20 = 85;
+  ) : (slider1 == 3) ? (
+    slider2 = 60; slider3 = -12; slider4 = 80;
+    slider5 = 80; slider6 = 60; slider7 = 5000;
+    slider8 = 85; slider9 = 85; slider10 = 60; slider11 = 95;
+    slider12 = 100; slider13 = 0.0; slider15 = 13;
+    slider16 = 50; slider17 = 0.15; slider18 = 50;
+    slider19 = 0; slider20 = 70;
+  ) : (slider1 == 4) ? (
+    slider2 = 40; slider3 = 0; slider4 = 65;
+    slider5 = 70; slider6 = 75; slider7 = 4200;
+    slider8 = 50; slider9 = 40; slider10 = 50; slider11 = 80;
+    slider12 = 100; slider13 = 0.0; slider15 = 3;
+    slider16 = 35; slider17 = 0.25; slider18 = 45;
+    slider19 = 0; slider20 = 75;
+  ) : (slider1 == 5) ? (
+    slider2 = 85; slider3 = 12; slider4 = 90;
+    slider5 = 60; slider6 = 20; slider7 = 9500;
+    slider8 = 75; slider9 = 70; slider10 = 65; slider11 = 95;
+    slider12 = 100; slider13 = 0.0; slider15 = 2;
+    slider16 = 60; slider17 = 0.35; slider18 = 20;
+    slider19 = 0; slider20 = 90;
+  ) : (slider1 == 6) ? (
+    slider2 = 50; slider3 = 0; slider4 = 45;
+    slider5 = 85; slider6 = 70; slider7 = 5500;
+    slider8 = 85; slider9 = 75; slider10 = 70; slider11 = 90;
+    slider12 = 100; slider13 = 0.0; slider15 = 0;
+    slider16 = 45; slider17 = 0.25; slider18 = 30;
+    slider19 = 0; slider20 = 60;
+  ) : (slider1 == 7) ? (
+    slider2 = 45; slider3 = 0; slider4 = 70;
+    slider5 = 72; slider6 = 75; slider7 = 3800;
+    slider8 = 60; slider9 = 50; slider10 = 45; slider11 = 85;
+    slider12 = 100; slider13 = 0.0; slider15 = 5;
+    slider16 = 40; slider17 = 0.22; slider18 = 45;
+    slider19 = 0; slider20 = 75;
+  ) : (slider1 == 8) ? (
+    slider2 = 50; slider3 = 0; slider4 = 80;
+    slider5 = 75; slider6 = 60; slider7 = 4800;
+    slider8 = 65; slider9 = 55; slider10 = 50; slider11 = 85;
+    slider12 = 100; slider13 = 0.0; slider15 = 6;
+    slider16 = 35; slider17 = 0.25; slider18 = 40;
+    slider19 = 0; slider20 = 75;
+  ) : (slider1 == 9) ? (
+    slider2 = 45; slider3 = -12; slider4 = 78;
+    slider5 = 70; slider6 = 70; slider7 = 3600;
+    slider8 = 60; slider9 = 55; slider10 = 50; slider11 = 88;
+    slider12 = 100; slider13 = 0.0; slider15 = 8;
+    slider16 = 40; slider17 = 0.20; slider18 = 45;
+    slider19 = 0; slider20 = 70;
+  ) : (slider1 == 10) ? (
+    slider2 = 35; slider3 = -12; slider4 = 75;
+    slider5 = 80; slider6 = 80; slider7 = 2800;
+    slider8 = 65; slider9 = 60; slider10 = 45; slider11 = 88;
+    slider12 = 100; slider13 = 0.0; slider15 = 9;
+    slider16 = 45; slider17 = 0.18; slider18 = 60;
+    slider19 = 0; slider20 = 65;
+  ) : (slider1 == 11) ? (
+    slider2 = 55; slider3 = 0; slider4 = 40;
+    slider5 = 80; slider6 = 65; slider7 = 4500;
+    slider8 = 35; slider9 = 30; slider10 = 60; slider11 = 80;
+    slider12 = 100; slider13 = 0.0; slider15 = 10;
+    slider16 = 30; slider17 = 0.40; slider18 = 35;
+    slider19 = 0; slider20 = 90;
+  ) : (slider1 == 12) ? (
+    slider2 = 40; slider3 = -12; slider4 = 78;
+    slider5 = 80; slider6 = 85; slider7 = 2400;
+    slider8 = 80; slider9 = 80; slider10 = 40; slider11 = 92;
+    slider12 = 100; slider13 = 0.0; slider15 = 12;
+    slider16 = 50; slider17 = 0.12; slider18 = 55;
+    slider19 = 0; slider20 = 75;
+  ) : (slider1 == 13) ? (
+    slider2 = 65; slider3 = 0; slider4 = 85;
+    slider5 = 65; slider6 = 40; slider7 = 6000;
+    slider8 = 75; slider9 = 65; slider10 = 45; slider11 = 90;
+    slider12 = 100; slider13 = 0.0; slider15 = 13;
+    slider16 = 40; slider17 = 0.20; slider18 = 35;
+    slider19 = 0; slider20 = 85;
+  ) : (slider1 == 14) ? (
+    slider2 = 50; slider3 = 0; slider4 = 76;
+    slider5 = 75; slider6 = 60; slider7 = 4200;
+    slider8 = 65; slider9 = 50; slider10 = 55; slider11 = 88;
+    slider12 = 100; slider13 = 0.0; slider15 = 14;
+    slider16 = 40; slider17 = 0.25; slider18 = 45;
+    slider19 = 0; slider20 = 80;
+  ) : (slider1 == 15) ? (
+    slider2 = 30; slider3 = -24; slider4 = 82;
+    slider5 = 85; slider6 = 85; slider7 = 2200;
+    slider8 = 75; slider9 = 70; slider10 = 35; slider11 = 95;
+    slider12 = 100; slider13 = 0.0; slider15 = 15;
+    slider16 = 45; slider17 = 0.10; slider18 = 70;
+    slider19 = 0; slider20 = 60;
+  ) : (slider1 == 16) ? (
+    slider2 = 50; slider3 = 0; slider4 = 75;
+    slider5 = 70; slider6 = 65; slider7 = 4800;
+    slider8 = 55; slider9 = 45; slider10 = 55; slider11 = 86;
+    slider12 = 100; slider13 = 0.0; slider15 = 16;
+    slider16 = 40; slider17 = 0.28; slider18 = 40;
+    slider19 = 0; slider20 = 75;
+  );
+  active_pitch_freq = 0.0;
+  last_preset = slider1;
+  preset_just_loaded = 1;
+);
+
+(preset_just_loaded) ? (
+  prev_s2 = slider2; prev_s3 = slider3; prev_s4 = slider4;
+  prev_s5 = slider5; prev_s6 = slider6; prev_s7 = slider7;
+  prev_s8 = slider8; prev_s9 = slider9; prev_s10 = slider10;
+  prev_s11 = slider11; prev_s12 = slider12; prev_s13 = slider13;
+  prev_s15 = slider15; prev_s16 = slider16; prev_s17 = slider17;
+  prev_s18 = slider18; prev_s19 = slider19; prev_s20 = slider20;
+  preset_just_loaded = 0;
+) : (
+  (prev_s2 >= 0) ? (
+    (slider2 != prev_s2 || slider3 != prev_s3 || slider4 != prev_s4 ||
+     slider5 != prev_s5 || slider6 != prev_s6 || slider7 != prev_s7 ||
+     slider8 != prev_s8 || slider9 != prev_s9 || slider10 != prev_s10 ||
+     slider11 != prev_s11 || slider12 != prev_s12 || slider13 != prev_s13 ||
+     slider15 != prev_s15 || slider16 != prev_s16 || slider17 != prev_s17 ||
+     slider18 != prev_s18 || slider19 != prev_s19 || slider20 != prev_s20) ? (
+      (slider1 > 0) ? (
+        slider1 = 0;
+        last_preset = 0;
+      );
+      (slider15 != prev_s15) ? active_pitch_freq = 0.0;
+      prev_s2 = slider2; prev_s3 = slider3; prev_s4 = slider4;
+      prev_s5 = slider5; prev_s6 = slider6; prev_s7 = slider7;
+      prev_s8 = slider8; prev_s9 = slider9; prev_s10 = slider10;
+      prev_s11 = slider11; prev_s12 = slider12; prev_s13 = slider13;
+      prev_s15 = slider15; prev_s16 = slider16; prev_s17 = slider17;
+      prev_s18 = slider18; prev_s19 = slider19; prev_s20 = slider20;
+    );
+  ) : (
+    prev_s2 = slider2; prev_s3 = slider3; prev_s4 = slider4;
+    prev_s5 = slider5; prev_s6 = slider6; prev_s7 = slider7;
+    prev_s8 = slider8; prev_s9 = slider9; prev_s10 = slider10;
+    prev_s11 = slider11; prev_s12 = slider12; prev_s13 = slider13;
+    prev_s15 = slider15; prev_s16 = slider16; prev_s17 = slider17;
+    prev_s18 = slider18; prev_s19 = slider19; prev_s20 = slider20;
+    last_preset = slider1;
+  );
+);
+
+target_spread = 0.50 + (slider2 / 100.0) * 1.50;
+target_pitch = slider3;
+target_res_q = max(10.0, min(100.0, slider4));
+target_excite_gain = 0.25 + (slider5 / 100.0) * 1.25;
+target_warmth = slider6 / 100.0;
+target_cutoff = max(60.0, min(sr * 0.46, slider7));
+
+target_diff_amt = slider8 / 100.0;
+target_room_size = 0.15 + (slider9 / 100.0) * 0.85;
+target_breath = slider10 / 100.0;
+stereo_w = (slider11 / 100.0) * 1.4;
+
+target_mix = slider12 / 100.0;
+target_gain = exp(slider13 * 0.11512925464970228);
+vessel_sel = max(0, min(16, floor(slider15)));
+
+target_emdr_depth = slider16 / 100.0;
+target_emdr_speed = slider17;
+target_voice2 = slider18 / 100.0;
+
+excite_mode = slider19;
+midi_dynamics = slider20 / 100.0;
+
+(!has_booted) ? (
+  slew_gain = target_gain;
+  slew_mix = target_mix;
+  slew_res_q = target_res_q;
+  slew_cutoff = target_cutoff;
+  slew_diff_amt = target_diff_amt;
+  slew_room_size = target_room_size;
+  slew_emdr_depth = target_emdr_depth;
+  slew_emdr_speed = target_emdr_speed;
+  slew_voice2 = target_voice2;
+  slew_spread = target_spread;
+  slew_warmth = target_warmth;
+  slew_excite_gain = target_excite_gain;
+  slew_breath = target_breath;
+  slew_pitch = target_pitch;
+  has_booted = 1;
+);
+
+@block
+is_playing = (play_state & 1);
+
+(!is_playing && was_playing) ? (
+  memset(2000, 0, 2000);
+  memset(20000, 0, 65536);
+  memset(100000, 0, 65536);
+  in_dc_l = 0.0; in_dc_r = 0.0;
+  lp1_s1_l = 0.0; lp1_s2_l = 0.0; lp2_s1_l = 0.0; lp2_s2_l = 0.0;
+  lp1_s1_r = 0.0; lp1_s2_r = 0.0; lp2_s1_r = 0.0; lp2_s2_r = 0.0;
+  hp_sub_s1_l = 0.0; hp_sub_s2_l = 0.0;
+  hp_sub_s1_r = 0.0; hp_sub_s2_r = 0.0;
+  d_lp_l = 0.0; d_lp_r = 0.0;
+  mallet_lp_l = 0.0; mallet_lp_r = 0.0;
+  lim_env = 0.0;
+  slew_lim_gain = 1.0;
+  sub_env_follow = 0.0;
+  mallet_active = 0;
+  bow_env = 0.0;
+  midi_gate = 0;
+);
+was_playing = is_playing;
+
+while (midirecv(offset, msg1, msg2, msg3)) (
+  status = msg1 & 0xF0;
+  
+  (status == 0x90 && msg3 > 0) ? (
+    midi_note = msg2;
+    key_down = 1;
+    raw_vel = msg3 / 127.0;
+    midi_vel = (1.0 - midi_dynamics * 0.6) + raw_vel * (midi_dynamics * 0.6);
+    midi_gate = 1;
+    midi_target_freq = 440.0 * exp((midi_note - 69.0 + midi_pitchbend) * 0.0577622650466621);
+    active_pitch_freq = midi_target_freq;
+    
+    // Trigger C^1 Smooth Hann-Windowed Mallet Contact Pulse
+    (excite_mode != 3) ? (
+      mallet_phase = 0.0;
+      mallet_dur = max(0.0004, 0.0040 - (midi_dynamics * 0.0035));
+      mallet_inc = 1.0 / max(1.0, mallet_dur * sr);
+      mallet_amp = midi_vel;
+      mallet_active = 1;
+    );
+  ) :
+  (status == 0x80 || (status == 0x90 && msg3 == 0)) ? (
+    (msg2 == midi_note) ? (
+      key_down = 0;
+      (!sustain_pedal) ? midi_gate = 0;
+    );
+  ) :
+  (status == 0xB0 && msg2 == 64) ? (
+    sustain_pedal = (msg3 >= 64);
+    (!sustain_pedal && !key_down) ? midi_gate = 0;
+  ) :
+  (status == 0xB0 && msg2 == 123) ? (
+    key_down = 0;
+    midi_gate = 0;
+    mallet_active = 0;
+    bow_env = 0.0;
+  ) :
+  (status == 0xE0) ? (
+    pb_val = ((msg3 * 128) + msg2) - 8192;
+    midi_pitchbend = (pb_val / 8192.0) * 2.0;
+    (midi_note >= 0) ? (
+      midi_target_freq = 440.0 * exp((midi_note - 69.0 + midi_pitchbend) * 0.0577622650466621);
+      active_pitch_freq = midi_target_freq;
+    );
+  );
+  
+  midisend(offset, msg1, msg2, msg3);
+);
+
+slew_gain += (target_gain - slew_gain) * 0.25;
+slew_mix += (target_mix - slew_mix) * 0.25;
+slew_res_q += (target_res_q - slew_res_q) * 0.25;
+slew_cutoff += (target_cutoff - slew_cutoff) * 0.25;
+slew_diff_amt += (target_diff_amt - slew_diff_amt) * 0.25;
+slew_room_size += (target_room_size - slew_room_size) * 0.25;
+slew_emdr_depth += (target_emdr_depth - slew_emdr_depth) * 0.25;
+slew_emdr_speed += (target_emdr_speed - slew_emdr_speed) * 0.25;
+slew_voice2 += (target_voice2 - slew_voice2) * 0.25;
+slew_spread += (target_spread - slew_spread) * 0.25;
+slew_warmth += (target_warmth - slew_warmth) * 0.25;
+slew_excite_gain += (target_excite_gain - slew_excite_gain) * 0.25;
+slew_breath += (target_breath - slew_breath) * 0.25;
+slew_pitch += (target_pitch - slew_pitch) * 0.25;
+
+shift_factor = exp((slew_pitch / 12.0) * LN2);
+
+cut_w = PI * max(40.0, min(sr * 0.46, slew_cutoff)) / sr;
+cut_g = tan(cut_w);
+cut_d = 1.41421356;
+cut_h = 1.0 / (1.0 + cut_d * cut_g + cut_g * cut_g);
+
+mallet_fc = 400.0 + midi_dynamics * 4000.0;
+mallet_alpha = (TWO_PI * mallet_fc) / sr;
+
+v_offset = 1000 + (vessel_sel * 10);
+mat_f0 = v_offset[0];
+(mat_f0 <= 0) ? mat_f0 = 100.0;
+fund_mode_f = 100.0;
+
+m = 0;
+while (m < 8) (
+  base_mode_f = v_offset[m];
+  mode_ratio = base_mode_f / mat_f0;
+  mode_ratio_spread = (mode_ratio > 0.0) ? exp(slew_spread * log(mode_ratio)) : 1.0;
+  
+  ((excite_mode == 0 || excite_mode >= 2) && active_pitch_freq > 0) ? (
+    base_target_f = active_pitch_freq * mode_ratio_spread * shift_factor;
+  ) : (
+    base_target_f = mat_f0 * mode_ratio_spread * shift_factor;
+  );
+  
+  (m == 0) ? fund_mode_f = base_target_f;
+  4000[m] = max(20.0, min(sr * 0.46, base_target_f));
+  m += 1;
+);
+
+@sample
+raw_in_l = spl0;
+raw_in_r = spl1;
+
+// ==============================================================
+// 1. CLEAN DC BLOCKER
+// ==============================================================
+in_dc_l += dc_alpha * (raw_in_l - in_dc_l);
+in_dc_r += dc_alpha * (raw_in_r - in_dc_r);
+cln_l = raw_in_l - in_dc_l;
+cln_r = raw_in_r - in_dc_r;
+
+// ==============================================================
+// 2. PHYSICAL MALLET & PINKED BOW FRICTION ENGINE
+// ==============================================================
+// Bow Friction Excitation (Filtered Organic Pink Rosin Noise)
+(excite_mode == 0 || excite_mode == 3) ? (
+  (midi_gate) ? (
+    bow_env += (midi_vel - bow_env) * 0.008;
+  ) : (
+    bow_env *= 0.990;
+  );
+  raw_bow = 0.0;
+  (bow_env > 0.0005) ? (
+    bow_noise = ((bow_noise * 196314165) + 907633515) & 2147483647;
+    white_rnd = (bow_noise / 2147483647.0) - 0.5;
+    bow_pink = bow_pink * 0.92 + white_rnd * 0.08;
+    raw_bow = bow_pink * bow_env * 0.45;
+  );
+) : (
+  bow_env = 0.0;
+  raw_bow = 0.0;
+);
+
+(ui_strike_trigger) ? (
+  mallet_phase = 0.0;
+  mallet_dur = max(0.0004, 0.0040 - (midi_dynamics * 0.0035));
+  mallet_inc = 1.0 / max(1.0, mallet_dur * sr);
+  mallet_amp = 0.85;
+  mallet_active = 1;
+  ui_strike_trigger = 0;
+);
+
+// Hann-Windowed Mallet Contact Strike Pulse (Zero Boundary Clicks)
+raw_strike = 0.0;
+(mallet_active) ? (
+  sin_pulse = sin(PI * mallet_phase);
+  raw_strike = (sin_pulse * sin_pulse) * mallet_amp * 0.75;
+  mallet_phase += mallet_inc;
+  (mallet_phase >= 1.0) ? (
+    mallet_active = 0;
+    raw_strike = 0.0;
+  );
+);
+
+(excite_mode != 1) ? (
+  synth_exc = raw_strike + raw_bow;
+  mallet_lp_l += mallet_alpha * (synth_exc - mallet_lp_l);
+  mallet_lp_r += mallet_alpha * (synth_exc - mallet_lp_r);
+) : (
+  mallet_lp_l = 0.0;
+  mallet_lp_r = 0.0;
+);
+
+(excite_mode == 1) ? (
+  exc_src_l = cln_l;
+  exc_src_r = cln_r;
+) : (excite_mode == 2 || excite_mode == 3) ? (
+  exc_src_l = mallet_lp_l;
+  exc_src_r = mallet_lp_r;
+) : (
+  exc_src_l = cln_l + mallet_lp_l;
+  exc_src_r = cln_r + mallet_lp_r;
+);
+
+drv_l = exc_src_l * slew_excite_gain;
+drv_r = exc_src_r * slew_excite_gain;
+
+// ==============================================================
+// 3. ZERO-DC SYMMETRIC HYPERBOLIC SATURATION & HARMONIC WARMTH
+// ==============================================================
+warm_drive = 1.0 + slew_warmth * 2.5;
+xd_l = drv_l * warm_drive;
+xd_r = drv_r * warm_drive;
+
+sat_l = xd_l / sqrt(1.0 + xd_l * xd_l);
+sat_r = xd_r / sqrt(1.0 + xd_r * xd_r);
+
+exciter_l = drv_l * (1.0 - slew_warmth * 0.50) + sat_l * (slew_warmth * 0.50);
+exciter_r = drv_r * (1.0 - slew_warmth * 0.50) + sat_r * (slew_warmth * 0.50);
+
+// ==============================================================
+// 4. LIVING BREATH CONTINUOUS SAMPLE-RATE LFO
+// ==============================================================
+lfo_phase += TWO_PI * 0.22 * dt;
+(lfo_phase > TWO_PI) ? lfo_phase -= TWO_PI;
+breath_freq_mod = 1.0 + sin(lfo_phase) * (0.012 * slew_breath);
+breath_q_mod = 1.0 + sin(lfo_phase * 1.5 + 1.0) * (0.20 * slew_breath);
+
+// ==============================================================
+// 5. 8-MODE CALIBRATED SVF MODAL RESONANCE BANK
+// ==============================================================
+sum_l = 0.0;
+sum_r = 0.0;
+mode_scale = (0.85 + (slew_res_q / 100.0) * 0.45);
+
+m = 0;
+while (m < 8) (
+  mode_f = 4000[m] * breath_freq_mod;
+  w_m = PI * mode_f / sr;
+  g_val = min(10.0, tan(w_m));
+  
+  mode_damp = 1.0 + (m * 0.16) * (1.0 - slew_warmth * 0.50);
+  q_val = max(1.5, ((slew_res_q * 1.6) * breath_q_mod) / mode_damp);
+  d_val = 1.0 / q_val;
+  h_val = 1.0 / (1.0 + d_val * g_val + g_val * g_val);
+  
+  // Left Mode TPT SVF Bandpass
+  st_l1 = 2000 + (m * 2);
+  st_l2 = st_l1 + 1;
+  hp_l = (exciter_l - (d_val + g_val) * st_l1[0] - st_l2[0]) * h_val;
+  bp_l = g_val * hp_l + st_l1[0];
+  st_l1[0] = g_val * hp_l + bp_l;
+  lp_l = g_val * bp_l + st_l2[0];
+  st_l2[0] = g_val * bp_l + lp_l;
+  
+  // Right Mode TPT SVF Bandpass
+  st_r1 = 3000 + (m * 2);
+  st_r2 = st_r1 + 1;
+  hp_r = (exciter_r - (d_val + g_val) * st_r1[0] - st_r2[0]) * h_val;
+  bp_r = g_val * hp_r + st_r1[0];
+  st_r1[0] = g_val * hp_r + bp_r;
+  lp_r = g_val * bp_r + st_r2[0];
+  st_r2[0] = g_val * bp_r + lp_r;
+  
+  bp_norm_l = bp_l * (d_val * mode_scale);
+  bp_norm_r = bp_r * (d_val * mode_scale);
+  
+  // Dynamic Follower Tracking for GFX Spectrum
+  mode_energy = abs(bp_norm_l) + abs(bp_norm_r);
+  7000[m] = 7000[m] * 0.990 + mode_energy * 0.010;
+  (mode_energy > 8000[m]) ? 8000[m] = mode_energy : 8000[m] *= 0.9994;
+  
+  m_weight = exp(-(0.15 + slew_warmth * 0.35) * log(m + 1));
+  pan_offset = pan_weights[m] * (stereo_w * 0.30);
+  pan_angle = (pan_offset + 1.0) * (PI / 4.0);
+  pan_l = cos(pan_angle) * 1.4142135623730951;
+  pan_r = sin(pan_angle) * 1.4142135623730951;
+  
+  sum_l += bp_norm_l * m_weight * pan_l;
+  sum_r += bp_norm_r * m_weight * pan_r;
+  
+  m += 1;
+);
+
+modal_bank_l = sum_l * 1.15;
+modal_bank_r = sum_r * 1.15;
+
+body_driver_amt = 0.20 * (1.0 - (slew_res_q / 100.0) * 0.35);
+acoustic_body_l = exciter_l * body_driver_amt + modal_bank_l * 0.88;
+acoustic_body_r = exciter_r * body_driver_amt + modal_bank_r * 0.88;
+
+// ==============================================================
+// 6. DEDICATED SUB-VOICE FOUNDATION (-1 OCTAVE)
+// ==============================================================
+(slew_voice2 > 0.001) ? (
+  sub_freq = max(20.0, fund_mode_f * 0.5);
+  sub_phase += TWO_PI * sub_freq * dt;
+  (sub_phase > TWO_PI) ? sub_phase -= TWO_PI;
+  
+  sub_env_follow = sub_env_follow * 0.992 + (7000[0] * 1.4) * 0.008;
+  (sub_env_follow < 0.000001) ? sub_env_follow = 0.0;
+  sub_gain = min(1.0, sub_env_follow);
+  sub_osc = sin(sub_phase) * sub_gain * slew_voice2 * 0.22;
+  
+  acoustic_body_l += sub_osc;
+  acoustic_body_r += sub_osc;
+);
+
+// ==============================================================
+// 7. 16-TAP PRIME VELVET SCATTERING DIFFUSION (4-POINT HERMITE SPLINE)
+// ==============================================================
+d_buf_l[d_wptr] = acoustic_body_l;
+d_buf_r[d_wptr] = acoustic_body_r;
+
+diff_accum_l = 0.0;
+diff_accum_r = 0.0;
+
+ti = 0;
+while (ti < 8) (
+  d_exact_l = diff_taps_l[ti] * 0.001 * sr * slew_room_size;
+  d_exact_r = diff_taps_r[ti] * 0.001 * sr * slew_room_size;
+  
+  r_pos_l = d_wptr - d_exact_l;
+  r_pos_r = d_wptr - d_exact_r;
+  
+  i0_l = floor(r_pos_l);
+  i0_r = floor(r_pos_r);
+  
+  f_l = r_pos_l - i0_l;
+  f_r = r_pos_r - i0_r;
+  
+  // Left 4-Point Catmull-Rom Hermite Interpolation
+  idx_m1_l = (i0_l - 1) & 65535;
+  idx_0_l  = i0_l & 65535;
+  idx_1_l  = (i0_l + 1) & 65535;
+  idx_2_l  = (i0_l + 2) & 65535;
+  
+  ym1_l = d_buf_l[idx_m1_l];
+  y0_l  = d_buf_l[idx_0_l];
+  y1_l  = d_buf_l[idx_1_l];
+  y2_l  = d_buf_l[idx_2_l];
+  
+  c0_l = y0_l;
+  c1_l = 0.5 * (y1_l - ym1_l);
+  c2_l = ym1_l - 2.5 * y0_l + 2.0 * y1_l - 0.5 * y2_l;
+  c3_l = 0.5 * (y2_l - ym1_l) + 1.5 * (y0_l - y1_l);
+  tap_val_l = ((c3_l * f_l + c2_l) * f_l + c1_l) * f_l + c0_l;
+  
+  // Right 4-Point Catmull-Rom Hermite Interpolation
+  idx_m1_r = (i0_r - 1) & 65535;
+  idx_0_r  = i0_r & 65535;
+  idx_1_r  = (i0_r + 1) & 65535;
+  idx_2_r  = (i0_r + 2) & 65535;
+  
+  ym1_r = d_buf_r[idx_m1_r];
+  y0_r  = d_buf_r[idx_0_r];
+  y1_r  = d_buf_r[idx_1_r];
+  y2_r  = d_buf_r[idx_2_r];
+  
+  c0_r = y0_r;
+  c1_r = 0.5 * (y1_r - ym1_r);
+  c2_r = ym1_r - 2.5 * y0_r + 2.0 * y1_r - 0.5 * y2_r;
+  c3_r = 0.5 * (y2_r - ym1_r) + 1.5 * (y0_r - y1_r);
+  tap_val_r = ((c3_r * f_r + c2_r) * f_r + c1_r) * f_r + c0_r;
+  
+  diff_accum_l += tap_val_l * diff_gains_l[ti];
+  diff_accum_r += tap_val_r * diff_gains_r[ti];
+  ti += 1;
+);
+
+d_wptr = (d_wptr + 1) & 65535;
+
+damp_a = 0.25 + (1.0 - slew_warmth) * 0.35;
+d_lp_l += damp_a * (diff_accum_l - d_lp_l);
+d_lp_r += damp_a * (diff_accum_r - d_lp_r);
+
+diff_out_l = d_lp_l * 0.85 + d_lp_r * 0.25;
+diff_out_r = d_lp_r * 0.85 + d_lp_l * 0.25;
+
+diff_sig_l = acoustic_body_l * (1.0 - slew_diff_amt) + diff_out_l * slew_diff_amt;
+diff_sig_r = acoustic_body_r * (1.0 - slew_diff_amt) + diff_out_r * slew_diff_amt;
+
+// ==============================================================
+// 8. LIVING BREATH & EQUAL-POWER BILATERAL SPACE
+// ==============================================================
+breath_amp = 1.0 + sin(lfo_phase) * slew_breath * 0.28;
+
+emdr_phase += TWO_PI * slew_emdr_speed * dt;
+(emdr_phase > TWO_PI) ? emdr_phase -= TWO_PI;
+
+emdr_pan = sin(emdr_phase) * slew_emdr_depth;
+pan_angle = (emdr_pan + 1.0) * (PI / 4.0);
+emdr_gain_l = cos(pan_angle) * 1.4142135623730951;
+emdr_gain_r = sin(pan_angle) * 1.4142135623730951;
+
+sig_l = diff_sig_l * breath_amp * emdr_gain_l;
+sig_r = diff_sig_r * breath_amp * emdr_gain_r;
+
+mid = 0.5 * (sig_l + sig_r);
+side = 0.5 * (sig_l - sig_r) * stereo_w;
+wide_l = mid + side;
+wide_r = mid - side;
+
+// ==============================================================
+// 9. 4-POLE TPT SVF LOWPASS (CUTOFF) & 22 HZ SUBSONIC HIGHPASS
+// ==============================================================
+hp1_l = (wide_l - (cut_d + cut_g) * lp1_s1_l - lp1_s2_l) * cut_h;
+bp1_l = cut_g * hp1_l + lp1_s1_l;
+lp1_s1_l = cut_g * hp1_l + bp1_l;
+lp1_l = cut_g * bp1_l + lp1_s2_l;
+lp1_s2_l = cut_g * bp1_l + lp1_l;
+
+hp1_r = (wide_r - (cut_d + cut_g) * lp1_s1_r - lp1_s2_r) * cut_h;
+bp1_r = cut_g * hp1_r + lp1_s1_r;
+lp1_s1_r = cut_g * hp1_r + bp1_r;
+lp1_r = cut_g * bp1_r + lp1_s2_r;
+lp1_s2_r = cut_g * bp1_r + lp1_r;
+
+hp2_l = (lp1_l - (cut_d + cut_g) * lp2_s1_l - lp2_s2_l) * cut_h;
+bp2_l = cut_g * hp2_l + lp2_s1_l;
+lp2_s1_l = cut_g * hp2_l + bp2_l;
+lp2_l = cut_g * bp2_l + lp2_s2_l;
+lp2_s2_l = cut_g * bp2_l + lp2_l;
+
+hp2_r = (lp1_r - (cut_d + cut_g) * lp2_s1_r - lp2_s2_r) * cut_h;
+bp2_r = cut_g * hp2_r + lp2_s1_r;
+lp2_s1_r = cut_g * hp2_r + bp2_r;
+lp2_r = cut_g * bp2_r + lp2_s2_r;
+lp2_s2_r = cut_g * bp2_r + lp2_r;
+
+hp_sub_l = (lp2_l - (d_sub + g_sub) * hp_sub_s1_l - hp_sub_s2_l) * h_sub;
+bp_sub_l = g_sub * hp_sub_l + hp_sub_s1_l;
+hp_sub_s1_l = g_sub * hp_sub_l + bp_sub_l;
+lp_sub_l = g_sub * bp_sub_l + hp_sub_s2_l;
+hp_sub_s2_l = g_sub * bp_sub_l + lp_sub_l;
+
+hp_sub_r = (lp2_r - (d_sub + g_sub) * hp_sub_s1_r - hp_sub_s2_r) * h_sub;
+bp_sub_r = g_sub * hp_sub_r + hp_sub_s1_r;
+hp_sub_s1_r = g_sub * hp_sub_r + bp_sub_r;
+lp_sub_r = g_sub * bp_sub_r + hp_sub_s2_r;
+hp_sub_s2_r = g_sub * bp_sub_r + lp_sub_r;
+
+wet_l = hp_sub_l * slew_gain;
+wet_r = hp_sub_r * slew_gain;
+
+dry_l = raw_in_l * slew_gain;
+dry_r = raw_in_r * slew_gain;
+
+master_l = dry_l * (1.0 - slew_mix) + wet_l * slew_mix;
+master_r = dry_r * (1.0 - slew_mix) + wet_r * slew_mix;
+
+// Non-colliding oscilloscope buffer write at address 200000
+scope_buf[scope_ptr] = (master_l + master_r) * 0.5;
+scope_ptr = (scope_ptr + 1) % 512;
+
+// ==============================================================
+// 10. MASTER TRANSPARENT LIMITER (ZERO-CRACKLE, ZERO-PUMPING)
+// ==============================================================
+cur_peak = max(abs(master_l), abs(master_r));
+(cur_peak > lim_env) ? (
+  lim_env += (cur_peak - lim_env) * 0.08;
+) : (
+  lim_env *= 0.99975;
+);
+
+target_lim_gain = (lim_env > CEIL_LIMIT) ? (CEIL_LIMIT / lim_env) : 1.0;
+slew_lim_gain += (target_lim_gain - slew_lim_gain) * 0.04;
+
+sig_l = master_l * slew_lim_gain;
+sig_r = master_r * slew_lim_gain;
+
+// Smooth hyperbolic saturation strictly contouring at -3.0 dBFS with zero zero-crossing cusp
+out_l = sig_l / sqrt(1.0 + (sig_l * sig_l) * 0.15);
+out_r = sig_r / sqrt(1.0 + (sig_r * sig_r) * 0.15);
+
+spl0 = out_l;
+spl1 = out_r;
+
+@gfx 960 300
+gfx_clear = 0x080c10;
+
+gfx_setfont(1, "Arial", 17, 'b');
+gfx_setfont(2, "Arial", 13, 'b');
+gfx_setfont(3, "Arial", 14, 'b');
+gfx_setfont(4, "Arial", 11, 'b');
+
+g_tot_w = max(400, gfx_w - 30);
+g_tot_h = max(130, min(190, gfx_h - 95));
+g_start_x = floor((gfx_w - g_tot_w) * 0.5);
+g_scope_y = 36;
+
+gfx_r = 0.10; gfx_g = 0.14; gfx_b = 0.20; gfx_a = 1.0;
+gfx_rect(g_start_x, 6, g_tot_w, 24);
+
+gfx_setfont(1);
+gfx_r = 0.95; gfx_g = 0.75; gfx_b = 0.25; gfx_a = 1.0;
+gfx_x = g_start_x + 10; gfx_y = 9;
+gfx_drawstr("ACOUSTIC RESONATOR");
+
+gfx_setfont(2);
+gfx_r = 0.25; gfx_g = 0.85; gfx_b = 0.95; gfx_a = 1.0;
+gfx_measurestr("LIVE RESONANCE SPECTRUM & ACOUSTIC CHLADNI PLATE", g_str_w, g_str_h);
+gfx_x = g_start_x + g_tot_w - g_str_w - 10; gfx_y = 10;
+gfx_drawstr("LIVE RESONANCE SPECTRUM & ACOUSTIC CHLADNI PLATE");
+
+g_left_w = floor(g_tot_w * 0.56);
+g_right_x = g_start_x + g_left_w + 12;
+g_right_w = g_tot_w - g_left_w - 12;
+
+gfx_r = 0.04; gfx_g = 0.06; gfx_b = 0.09; gfx_a = 1.0;
+gfx_rect(g_start_x, g_scope_y, g_left_w, g_tot_h);
+gfx_rect(g_right_x, g_scope_y, g_right_w, g_tot_h);
+
+gfx_r = 0.16; gfx_g = 0.22; gfx_b = 0.28; gfx_a = 1.0;
+gfx_line(g_start_x, g_scope_y, g_start_x + g_left_w, g_scope_y);
+gfx_line(g_start_x, g_scope_y + g_tot_h, g_start_x + g_left_w, g_scope_y + g_tot_h);
+gfx_line(g_start_x, g_scope_y, g_start_x, g_scope_y + g_tot_h);
+gfx_line(g_start_x + g_left_w, g_scope_y, g_start_x + g_left_w, g_scope_y + g_tot_h);
+
+gfx_line(g_right_x, g_scope_y, g_right_x + g_right_w, g_scope_y);
+gfx_line(g_right_x, g_scope_y + g_tot_h, g_right_x + g_right_w, g_scope_y + g_tot_h);
+gfx_line(g_right_x, g_scope_y, g_right_x, g_scope_y + g_tot_h);
+gfx_line(g_right_x + g_right_w, g_scope_y, g_right_x + g_right_w, g_scope_y + g_tot_h);
+
+gfx_r = 0.12; gfx_g = 0.28; gfx_b = 0.38; gfx_a = 0.30;
+g_prev_sy = g_scope_y + floor(g_tot_h * 0.5);
+g_si = 0;
+while (g_si < min(512, g_left_w)) (
+  g_s_val = scope_buf[(scope_ptr + g_si) % 512];
+  g_sy = g_scope_y + floor(g_tot_h * 0.5) - floor(g_s_val * (g_tot_h * 0.40));
+  (g_sy < g_scope_y + 2) ? g_sy = g_scope_y + 2 : (g_sy > g_scope_y + g_tot_h - 2) ? g_sy = g_scope_y + g_tot_h - 2;
+  (g_si > 0) ? gfx_line(g_start_x + g_si - 1, g_prev_sy, g_start_x + g_si, g_sy);
+  g_prev_sy = g_sy;
+  g_si += 1;
+);
+
+g_col_w = floor(g_left_w / 8.0);
+g_total_live_energy = 0.0;
+g_mi = 0;
+while (g_mi < 8) (
+  g_cx = g_start_x + g_mi * g_col_w + 6;
+  g_cy = g_scope_y + 8;
+  g_cw = g_col_w - 12;
+  
+  g_f_curr = 4000[g_mi];
+  g_raw_e = 7000[g_mi];
+  g_peak_e = 8000[g_mi];
+  
+  // Cutoff Filter Response Attenuation on Visualizer Bars (1:1 Audible Sync)
+  g_cut_ratio = g_f_curr / max(20.0, slew_cutoff);
+  g_filt_gain = 1.0 / sqrt(1.0 + (g_cut_ratio ^ 8));
+  g_live_energy = g_raw_e * g_filt_gain;
+  g_total_live_energy += g_live_energy;
+  
+  gfx_setfont(4);
+  gfx_r = 0.80; gfx_g = 0.85; gfx_b = 0.90; gfx_a = 0.95;
+  gfx_x = g_cx; gfx_y = g_cy;
+  sprintf(#m_lbl, "M%d:%.0f", g_mi + 1, g_f_curr);
+  gfx_drawstr(#m_lbl);
+  
+  g_db_val = 20.0 * (log(max(0.00001, g_live_energy * 2.2)) / log(10.0));
+  g_norm_val = (g_db_val + 40.0) / 40.0;
+  (g_norm_val < 0.0) ? g_norm_val = 0.0 : (g_norm_val > 1.0) ? g_norm_val = 1.0;
+  
+  g_bar_h = floor(g_norm_val * (g_tot_h - 38));
+  g_by = g_scope_y + g_tot_h - 6 - g_bar_h;
+  
+  gfx_r = (0.95 - g_mi * 0.09) * (0.35 + g_filt_gain * 0.65);
+  gfx_g = (0.50 + g_mi * 0.06) * (0.35 + g_filt_gain * 0.65);
+  gfx_b = (0.20 + g_mi * 0.10) * (0.35 + g_filt_gain * 0.65);
+  gfx_a = 0.20 + g_filt_gain * 0.65;
+  gfx_rect(g_cx, g_by, g_cw, g_bar_h);
+  
+  g_peak_live = g_peak_e * g_filt_gain;
+  g_peak_db = 20.0 * (log(max(0.00001, g_peak_live * 2.2)) / log(10.0));
+  g_p_norm = (g_peak_db + 40.0) / 40.0;
+  (g_p_norm < 0.0) ? g_p_norm = 0.0 : (g_p_norm > 1.0) ? g_p_norm = 1.0;
+  g_p_y = g_scope_y + g_tot_h - 6 - floor(g_p_norm * (g_tot_h - 38));
+  gfx_r = 1.0; gfx_g = 1.0; gfx_b = 1.0; gfx_a = 0.25 + g_filt_gain * 0.70;
+  gfx_line(g_cx, g_p_y, g_cx + g_cw, g_p_y);
+  
+  g_mi += 1;
+);
+
+g_cut_norm = max(0.0, min(1.0, (slew_cutoff - 60.0) / (20000.0 - 60.0)));
+g_cut_line_x = g_start_x + floor(g_cut_norm * (g_left_w - 4)) + 2;
+
+// Glowing Extended Precision Cutoff Needle
+gfx_r = 0.98; gfx_g = 0.28; gfx_b = 0.38; gfx_a = 0.30;
+gfx_line(g_cut_line_x - 1, g_scope_y - 2, g_cut_line_x - 1, g_scope_y + g_tot_h + 3);
+gfx_line(g_cut_line_x + 1, g_scope_y - 2, g_cut_line_x + 1, g_scope_y + g_tot_h + 3);
+
+gfx_r = 1.0; gfx_g = 0.60; gfx_b = 0.70; gfx_a = 0.95;
+gfx_line(g_cut_line_x, g_scope_y - 3, g_cut_line_x, g_scope_y + g_tot_h + 4);
+
+// Top and Bottom Precision Indicator Notches
+gfx_r = 1.0; gfx_g = 0.30; gfx_b = 0.45; gfx_a = 0.95;
+gfx_line(g_cut_line_x - 3, g_scope_y - 3, g_cut_line_x + 3, g_scope_y - 3);
+gfx_line(g_cut_line_x - 2, g_scope_y - 2, g_cut_line_x + 2, g_scope_y - 2);
+gfx_line(g_cut_line_x - 3, g_scope_y + g_tot_h + 4, g_cut_line_x + 3, g_scope_y + g_tot_h + 4);
+gfx_line(g_cut_line_x - 2, g_scope_y + g_tot_h + 3, g_cut_line_x + 2, g_scope_y + g_tot_h + 3);
+
+g_pot_cx = g_right_x + floor(g_right_w * 0.5) + floor(sin(lfo_phase) * 2.0);
+g_pot_cy = g_scope_y + floor(g_tot_h * 0.46);
+g_max_rad = min(floor(g_right_w * 0.44), floor(g_tot_h * 0.42));
+
+chladni_rot += 0.025;
+(chladni_rot > TWO_PI) ? chladni_rot -= TWO_PI;
+
+// Outer Resonant Dial Frame & 16 Nodal Ticks
+gfx_r = 0.16; gfx_g = 0.24; gfx_b = 0.34; gfx_a = 0.70;
+gfx_circle(g_pot_cx, g_pot_cy, g_max_rad, 0);
+gfx_circle(g_pot_cx, g_pot_cy, g_max_rad - 1, 0);
+
+g_ti = 0;
+while (g_ti < 16) (
+  g_t_ang = g_ti * (TWO_PI / 16.0);
+  g_tx1 = g_pot_cx + floor(cos(g_t_ang) * (g_max_rad - 4));
+  g_ty1 = g_pot_cy + floor(sin(g_t_ang) * (g_max_rad - 4));
+  g_tx2 = g_pot_cx + floor(cos(g_t_ang) * g_max_rad);
+  g_ty2 = g_pot_cy + floor(sin(g_t_ang) * g_max_rad);
+  gfx_r = 0.28; gfx_g = 0.45; gfx_b = 0.60; gfx_a = 0.50;
+  gfx_line(g_tx1, g_ty1, g_tx2, g_ty2);
+  g_ti += 1;
+);
+
+// Dynamic Multi-layered Nodal Resonance Rings
+g_ri = 0;
+while (g_ri < 7) (
+  g_f_ri = 4000[g_ri];
+  g_f_cut_ratio = g_f_ri / max(20.0, slew_cutoff);
+  g_f_filt = 1.0 / sqrt(1.0 + (g_f_cut_ratio ^ 8));
+  
+  g_r_mode_e = 7000[g_ri] * g_f_filt;
+  g_r_db = 20.0 * (log(max(0.00001, g_r_mode_e * 2.2)) / log(10.0));
+  g_r_norm = (g_r_db + 40.0) / 40.0;
+  (g_r_norm < 0.0) ? g_r_norm = 0.0 : (g_r_norm > 1.0) ? g_r_norm = 1.0;
+  
+  g_base_r = floor((g_ri + 1) * (g_max_rad / 7.2));
+  g_mod_r = floor(sin(chladni_rot * 1.5 + g_ri * 0.9) * (2.0 + g_r_norm * 9.0));
+  g_r_radius = max(4, g_base_r + g_mod_r);
+  
+  gfx_r = 0.95 - g_ri * 0.08;
+  gfx_g = 0.50 + g_ri * 0.06 + g_r_norm * 0.40;
+  gfx_b = 0.25 + g_ri * 0.10 + g_r_norm * 0.50;
+  gfx_a = 0.25 + g_r_norm * 0.75;
+  
+  gfx_circle(g_pot_cx, g_pot_cy, g_r_radius, 0);
+  (g_r_norm > 0.25) ? gfx_circle(g_pot_cx, g_pot_cy, g_r_radius + 1, 0);
+  (g_r_norm > 0.60) ? gfx_circle(g_pot_cx, g_pot_cy, g_r_radius - 1, 0);
+  
+  g_ri += 1;
+);
+
+// 8 Radial Harmonic Resonance Beams & Illuminated Orbital Nodes
+g_spk = 0;
+while (g_spk < 8) (
+  g_f_spk = 4000[g_spk];
+  g_s_cut_ratio = g_f_spk / max(20.0, slew_cutoff);
+  g_s_filt = 1.0 / sqrt(1.0 + (g_s_cut_ratio ^ 8));
+  
+  g_spk_ang = chladni_rot * 0.5 + g_spk * (TWO_PI / 8.0);
+  g_spk_e = 7000[g_spk] * g_s_filt;
+  g_spk_db = 20.0 * (log(max(0.00001, g_spk_e * 2.2)) / log(10.0));
+  g_spk_norm = (g_spk_db + 40.0) / 40.0;
+  (g_spk_norm < 0.0) ? g_spk_norm = 0.0 : (g_spk_norm > 1.0) ? g_spk_norm = 1.0;
+  
+  g_spk_len = g_max_rad * (0.65 + g_spk_norm * 0.33);
+  g_px2 = g_pot_cx + floor(cos(g_spk_ang) * g_spk_len);
+  g_py2 = g_pot_cy + floor(sin(g_spk_ang) * g_spk_len);
+  
+  // Radial energy beam
+  gfx_r = 0.25 + g_spk_norm * 0.70;
+  gfx_g = 0.80 + g_spk_norm * 0.20;
+  gfx_b = 0.95;
+  gfx_a = 0.30 + g_spk_norm * 0.70;
+  gfx_line(g_pot_cx, g_pot_cy, g_px2, g_py2);
+  
+  // Glowing outer node
+  g_node_r = max(2, floor(2 + g_spk_norm * 3.0));
+  gfx_r = 0.95; gfx_g = 0.85; gfx_b = 0.40; gfx_a = 0.85 + g_spk_norm * 0.15;
+  gfx_circle(g_px2, g_py2, g_node_r, 1);
+  (g_spk_norm > 0.4) ? (
+    gfx_r = 1.0; gfx_g = 1.0; gfx_b = 1.0; gfx_a = 0.70;
+    gfx_circle(g_px2, g_py2, g_node_r + 2, 0);
+  );
+  
+  g_spk += 1;
+);
+
+// Radiant Resonant Core & Dual Dynamic Corona
+g_avg_n = (g_total_live_energy / 8.0);
+g_core_r = max(6, floor(g_max_rad * 0.18 + g_avg_n * 18.0));
+
+// Outer corona aura
+g_corona_r = g_core_r + 5 + floor(sin(chladni_rot * 2.5) * 3.0);
+gfx_r = 0.30 + g_avg_n * 0.60; gfx_g = 0.85; gfx_b = 0.95; gfx_a = 0.40 + g_avg_n * 0.50;
+gfx_circle(g_pot_cx, g_pot_cy, g_corona_r, 0);
+gfx_circle(g_pot_cx, g_pot_cy, g_corona_r + 1, 0);
+
+// Inner core
+gfx_r = 0.98; gfx_g = 0.75 + g_avg_n * 0.25; gfx_b = 0.25; gfx_a = 0.95;
+gfx_circle(g_pot_cx, g_pot_cy, g_core_r, 1);
+gfx_r = 1.0; gfx_g = 0.95; gfx_b = 0.60; gfx_a = 0.80;
+gfx_circle(g_pot_cx, g_pot_cy, max(2, g_core_r - 2), 1);
+
+(vessel_sel == 0) ? #m_mat_lbl = "TERRACOTTA CERAMIC POT" :
+(vessel_sel == 1) ? #m_mat_lbl = "SINGING BRONZE BOWL" :
+(vessel_sel == 2) ? #m_mat_lbl = "QUARTZ GLASS HARMONICA" :
+(vessel_sel == 3) ? #m_mat_lbl = "RESONANT SPRUCE BODY" :
+(vessel_sel == 4) ? #m_mat_lbl = "CELTIC DRONE WOOD (LOW B)" :
+(vessel_sel == 5) ? #m_mat_lbl = "AGED HOLLOW OAK TIMBER" :
+(vessel_sel == 6) ? #m_mat_lbl = "NORDIC PINE TAGELHARPA" :
+(vessel_sel == 7) ? #m_mat_lbl = "EUCALYPTUS DIDGERIDOO" :
+(vessel_sel == 8) ? #m_mat_lbl = "GOTHIC CHAMBER CELLO" :
+(vessel_sel == 9) ? #m_mat_lbl = "PETRIFIED BOG ASH LOG" :
+(vessel_sel == 10) ? #m_mat_lbl = "RESONANT CEDAR FRAME RIM" :
+(vessel_sel == 11) ? #m_mat_lbl = "ROSEWOOD MARIMBA BAR" :
+(vessel_sel == 12) ? #m_mat_lbl = "BASALT STONE CAVERN" :
+(vessel_sel == 13) ? #m_mat_lbl = "CAST CATHEDRAL BELL" :
+(vessel_sel == 14) ? #m_mat_lbl = "FORGED CARNYX WAR HORN" :
+(vessel_sel == 15) ? #m_mat_lbl = "32FT SUB ORGAN PIPE" :
+                     #m_mat_lbl = "SCANDINAVIAN PINE LYRE";
+
+(slider1 == 1) ? #p_name = "01: TERRACOTTA CHAMBER" :
+(slider1 == 2) ? #p_name = "02: SINGING BRONZE BOWL" :
+(slider1 == 3) ? #p_name = "03: CATHEDRAL VAULT" :
+(slider1 == 4) ? #p_name = "04: SPRUCE TIMBER" :
+(slider1 == 5) ? #p_name = "05: QUARTZ GLASS CHIME" :
+(slider1 == 6) ? #p_name = "06: FOLEY VELVET DIFFUSER" :
+(slider1 == 7) ? #p_name = "07: SOLID OAK SOUNDBOARD" :
+(slider1 == 8) ? #p_name = "08: NORDIC TAGELHARPA" :
+(slider1 == 9) ? #p_name = "09: GOTHIC CHAMBER CELLO" :
+(slider1 == 10) ? #p_name = "10: PETRIFIED BOG ASH" :
+(slider1 == 11) ? #p_name = "11: HARDWOOD RIM ATTACK" :
+(slider1 == 12) ? #p_name = "12: BASALT CAVERN CRYPT" :
+(slider1 == 13) ? #p_name = "13: CAST BRONZE BELL" :
+(slider1 == 14) ? #p_name = "14: CARNYX WAR HORN" :
+(slider1 == 15) ? #p_name = "15: 32FT SUB ORGAN" :
+(slider1 == 16) ? #p_name = "16: SCANDINAVIAN LYRE" : #p_name = "MANUAL / CUSTOM";
+
+(slider1 > 0) ? #plate_lbl = #p_name : #plate_lbl = #m_mat_lbl;
+
+gfx_setfont(3);
+gfx_r = 0.85; gfx_g = 0.90; gfx_b = 0.98; gfx_a = 0.95;
+gfx_measurestr(#plate_lbl, g_pl_w, g_pl_h);
+gfx_x = g_right_x + floor((g_right_w - g_pl_w) * 0.5);
+gfx_y = g_scope_y + g_tot_h - 18;
+gfx_drawstr(#plate_lbl);
+
+g_tele_y = g_scope_y + g_tot_h + 8;
+gfx_setfont(3);
+gfx_r = 0.75; gfx_g = 0.85; gfx_b = 0.95; gfx_a = 1.0;
+gfx_x = g_start_x + 10; gfx_y = g_tele_y;
+
+(excite_mode == 1) ? #m_mode_lbl = "AUDIO ONLY" :
+(excite_mode == 2) ? #m_mode_lbl = "MIDI PLUCK" :
+(excite_mode == 3) ? #m_mode_lbl = "MIDI BOW" : #m_mode_lbl = "HYBRID (AUDIO+MIDI)";
+
+sprintf(#tele_str, "PRESET: %s  |  MAT: %s  |  TUNE: %+dst  |  Q: %d%%  |  CUT: %dHz", #p_name, #m_mat_lbl, slider3, slider4, slew_cutoff);
+gfx_drawstr(#tele_str);
+
+(mouse_cap & 1) ? (
+  (!g_was_mouse_down && mouse_x >= g_start_x && mouse_x <= g_start_x + g_tot_w && mouse_y >= g_scope_y && mouse_y <= g_scope_y + g_tot_h) ? (
+    midi_note = 57;
+    active_pitch_freq = 220.0;
+    midi_vel = 0.85;
+    midi_gate = 1;
+    key_down = 1;
+    (excite_mode != 3) ? (
+      ui_strike_trigger = 1;
+    );
+  );
+  g_was_mouse_down = 1;
+) : (
+  (g_was_mouse_down) ? (
+    key_down = 0;
+    (!sustain_pedal) ? midi_gate = 0;
+  );
+  g_was_mouse_down = 0;
+);
