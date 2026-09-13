@@ -1,4 +1,4 @@
-desc: Acoustic Resonator
+desc: Acoustic Resonator (CURS)
 author: Currenari Sounds
 version: 2.9.4
 link:
@@ -6,7 +6,7 @@ link:
   GitHub https://github.com/currenari-dev/CURS-jsfx
 screenshot: Screenshot https://raw.githubusercontent.com/currenari-dev/CURS-jsfx/main/screenshot.png
 about:
-  # Acoustic Resonator
+  # Acoustic Resonator (CURS)
 
   8-mode acoustic resonator and synthesizer for sound design, ambient scoring, and organic production.
 
