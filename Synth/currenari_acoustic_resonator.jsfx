@@ -1,4 +1,4 @@
-desc: Acoustic Resonator (CURS)
+desc: Acoustic Resonator
 author: Currenari Sounds
 version: 2.9.4
 link:
@@ -6,7 +6,7 @@ link:
   GitHub https://github.com/currenari-dev/CURS-jsfx
 screenshot: Screenshot https://raw.githubusercontent.com/currenari-dev/CURS-jsfx/main/screenshot.png
 about:
-  # Acoustic Resonator (CURS)
+  # Acoustic Resonator
 
   8-mode acoustic resonator and synthesizer for sound design, ambient scoring, and organic production.
 
@@ -19,29 +19,6 @@ about:
   - Real-time Chladni dial and spectrum display
   - True Peak safety limiter (<= -3.0 dBFS)
   - Cross-platform support (Linux, macOS, Windows) across all sample rates (44.1 kHz - 192 kHz)
-
-desc: Acoustic Resonator (CURS)
-// @author Currenari Sounds
-// @version 2.9.4
-// @changelog
-//   - Initial release of Acoustic Resonator (CURS)
-//   - 8-mode calibrated modal bank
-//   - 17 acoustic materials and 16 presets
-//   - 16-tap Velvet Cloud diffuser
-//   - Mallet strike and bowed friction synthesis engine
-//   - Real-time Chladni dial and live spectrum display
-//   - True Peak limiter <= -3.0 dBFS
-// @link Website https://currenari.com
-// @description Acoustic Resonator & Synthesizer
-// @about
-//   # Acoustic Resonator (CURS)
-//   Acoustic Resonator & Synthesizer by Currenari Sounds.
-//   
-//   Features 8-mode modal bank, 17 acoustic materials, 16 presets,
-//   mallet strike and bowed friction synthesis engine, 16-tap Velvet Cloud diffuser,
-//   sub foundation, True Peak -3.0 dBFS ceiling, and real-time Chladni visualizer.
-// @provides
-//   [effect] acoustic_resonator
 
 in_pin:Left Input (Source Audio)
 in_pin:Right Input (Source Audio)
