@@ -1,0 +1,749 @@
+desc: Tape Stop & Reverse Decelerator (CURS)
+// @author Currenari Sounds
+// @version 1.4.0
+// @changelog
+//   - Added 10ms C0 continuous crossfade transitions across all state changes
+//   - Eliminated audio snapping and boundary phase artifacts
+//   - Added high-visibility transport status banner and state-reactive UI glows
+//   - Latching discrete button toggles with instant visual hover feedback
+//   - Dynamic tape head tone modeling, variable stop inertia, and spin-up release
+//   - True Peak limiter <= -3.0 dBFS ceiling
+// @link Website https://currenari.com
+// @description Analog Tape Stop, Reverse & Release Engine
+// @about
+//   # Tape Stop & Reverse Decelerator (CURS)
+//   Studio-grade analog tape stop, continuous reverse rewinder, and motor deceleration processor by Currenari Sounds.
+//   
+//   Features authentic mechanical inertia modeling, continuous musical reverse playback,
+//   customizable release curves (Linear, Exponential, S-Curve), dynamic tape head frequency loss,
+//   tempo-synced reverse windows and brake times, and real-time animated dual-reel tape transport visualizer.
+// @provides
+//   [effect] currenari_tape_stop.jsfx
+
+in_pin:Left Input (Audio)
+in_pin:Right Input (Audio)
+out_pin:Left Output
+out_pin:Right Output
+
+// --- SECTION 1: TRANSPORT & BRAKE ---
+slider1:0<0,1,1{PLAY (Normal),STOP (Brake Active)}>Brake Trigger
+slider2:0<0,1,1{Forward,Reverse (Backwards)}>Direction / Reverse
+slider3:4<0,6,1{1/4 Beat,1/2 Beat,1 Beat (1/4),2 Beats (1/2),1 Bar,2 Bars,4 Bars}>Reverse Window
+slider4:650<50,5000,10>Stop Duration (ms)
+slider5:0<0,7,1{Free (ms),1/16,1/8,1/4,1/2,1 Bar,2 Bars,4 Bars}>Stop Tempo Sync
+slider6:2.2<0.5,5.0,0.1>Brake Curve Inertia
+
+// --- SECTION 2: RELEASE & RECOVERY ---
+slider7:200<0,3000,10>Release Time (ms)
+slider8:0<0,1,1{Snap to Live Input,Continuous Tape Resume}>Release Behavior
+slider9:1<0,2,1{Linear,Exponential (Natural),Smooth S-Curve}>Release Curve
+slider10:1<0,1,1{Bypass,Active (Dynamic Darkening)}>Tape Head Tone
+slider11:30<0,250,5>Pre-Drop Gap (ms)
+slider12:0<0,3,1{Disabled,Note = Brake,Note = Reverse,Dual (C4=Brake / C#4=Reverse)}>MIDI Trigger Mode
+
+// --- SECTION 3: MASTER MIX & GAIN ---
+slider13:0<-18,12,0.1>Output Gain (dB)
+slider14:100<0,100,1>Mix (%)
+
+@init
+sr = (srate > 0) ? srate : 44100;
+dt = 1.0 / sr;
+PI = 3.14159265358979323846;
+TWO_PI = 6.28318530717958647692;
+
+// Allocate 10 seconds of stereo circular ring buffer memory
+buf_len = min(floor(sr * 10.0), 960000);
+buf_L = 0;
+buf_R = 1000000;
+
+write_pos = 0;
+read_pos = 0;
+
+state = 0; // 0: PLAY (FWD), 1: BRAKING, 2: HOLD_GAP, 3: RELEASE/SPINUP, 4: REVERSE_PLAY
+current_speed = 1.0;
+brake_progress = 0.0;
+spinup_progress = 0.0;
+brake_anchor = 0;
+brake_phase = 0.0;
+rev_timer = 0.0;
+rev_base = 0;
+rev_win_samples = floor(sr * 2.0); // 1 Bar at 120 BPM
+gap_duration_sec = 0.03;
+reel_angle = 0.0;
+dir_sign = 1.0;
+
+stop_duration_sec = 0.65;
+release_duration_sec = 0.20;
+brake_curve = 2.2;
+release_behavior = 0;
+release_curve_type = 1;
+out_gain = 1.0;
+wet_mix = 1.0;
+dry_mix = 0.0;
+
+// Filter state
+lp_state_L = 0.0;
+lp_state_R = 0.0;
+
+// Continuous Mode Crossfade Engine
+xfade_len = max(floor(sr * 0.010), 64); // 10ms smooth transition window
+xfade_pos = xfade_len;
+xfade_active = 0;
+xfade_prev_L = 0.0;
+xfade_prev_R = 0.0;
+last_wet_L = 0.0;
+last_wet_R = 0.0;
+
+// Button Mouse State
+prev_mouse_cap1 = 0;
+prev_mouse_cap2 = 0;
+prev_brake = 0;
+prev_rev = 0;
+
+// Cubic Hermite Spline Interpolation Reader
+function read_buffer_hermite(buf_offset, r_pos) (
+  r_pos = r_pos % buf_len;
+  (r_pos < 0) ? ( r_pos += buf_len; );
+
+  i1 = floor(r_pos);
+  i0 = (i1 + buf_len - 1) % buf_len;
+  i2 = (i1 + 1) % buf_len;
+  i3 = (i1 + 2) % buf_len;
+  frac = r_pos - i1;
+
+  y0 = buf_offset[i0];
+  y1 = buf_offset[i1];
+  y2 = buf_offset[i2];
+  y3 = buf_offset[i3];
+
+  c0 = y1;
+  c1 = 0.5 * (y2 - y0);
+  c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+  c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+
+  ((c3 * frac + c2) * frac + c1) * frac + c0;
+);
+
+// GUI Tape Reel Drawer
+function draw_tape_reel(cx, cy, radius, angle, is_right) (
+  // Outer Reel Rim
+  gfx_r = 0.18; gfx_g = 0.20; gfx_b = 0.24;
+  gfx_circle(cx, cy, radius, 0);
+  gfx_circle(cx, cy, radius - 1, 0);
+
+  // Tape Pack
+  tape_thickness = is_right ? (radius * 0.75) : (radius * 0.50);
+  gfx_r = 0.28; gfx_g = 0.20; gfx_b = 0.15; // Brown Oxide Tape
+  gfx_circle(cx, cy, tape_thickness, 1);
+
+  // Metal Hub
+  gfx_r = 0.14; gfx_g = 0.15; gfx_b = 0.18;
+  gfx_circle(cx, cy, radius * 0.32, 1);
+
+  // Center Spindle Pin
+  gfx_r = 0.85; gfx_g = 0.88; gfx_b = 0.92;
+  gfx_circle(cx, cy, 6, 1);
+
+  // 3 Rotating Flange Cutouts (120 deg apart)
+  flange_rad = radius * 0.55;
+  spoke_idx = 0;
+  while (spoke_idx < 3) (
+    cur_ang = angle + spoke_idx * (TWO_PI / 3.0);
+    px = cx + cos(cur_ang) * flange_rad;
+    py = cy + sin(cur_ang) * flange_rad;
+    gfx_r = 0.07; gfx_g = 0.08; gfx_b = 0.10;
+    gfx_circle(px, py, 11, 1);
+    gfx_r = 0.40; gfx_g = 0.45; gfx_b = 0.52;
+    gfx_circle(px, py, 11, 0);
+    spoke_idx += 1;
+  );
+);
+
+@slider
+tempo_bpm = (tempo > 0) ? tempo : 120.0;
+sec_per_beat = 60.0 / tempo_bpm;
+
+// Calculate Reverse Window Length
+rev_win_mode = slider3;
+(rev_win_mode == 0) ? (
+  rev_win_samples = max(floor(sec_per_beat * 0.25 * sr), 128); // 1/4 Beat
+) : (rev_win_mode == 1) ? (
+  rev_win_samples = max(floor(sec_per_beat * 0.50 * sr), 256); // 1/2 Beat
+) : (rev_win_mode == 2) ? (
+  rev_win_samples = max(floor(sec_per_beat * 1.00 * sr), 512); // 1 Beat
+) : (rev_win_mode == 3) ? (
+  rev_win_samples = max(floor(sec_per_beat * 2.00 * sr), 1024); // 2 Beats
+) : (rev_win_mode == 4) ? (
+  rev_win_samples = max(floor(sec_per_beat * 4.00 * sr), 2048); // 1 Bar
+) : (rev_win_mode == 5) ? (
+  rev_win_samples = max(floor(sec_per_beat * 8.00 * sr), 4096); // 2 Bars
+) : (
+  rev_win_samples = max(floor(sec_per_beat * 16.00 * sr), 8192); // 4 Bars
+);
+
+// Calculate Stop Duration
+stop_sync_mode = slider5;
+(stop_sync_mode == 0) ? (
+  stop_duration_sec = max(slider4 * 0.001, 0.01);
+) : (stop_sync_mode == 1) ? (
+  stop_duration_sec = sec_per_beat * 0.25;
+) : (stop_sync_mode == 2) ? (
+  stop_duration_sec = sec_per_beat * 0.50;
+) : (stop_sync_mode == 3) ? (
+  stop_duration_sec = sec_per_beat * 1.00;
+) : (stop_sync_mode == 4) ? (
+  stop_duration_sec = sec_per_beat * 2.00;
+) : (stop_sync_mode == 5) ? (
+  stop_duration_sec = sec_per_beat * 4.00;
+) : (stop_sync_mode == 6) ? (
+  stop_duration_sec = sec_per_beat * 8.00;
+) : (
+  stop_duration_sec = sec_per_beat * 16.00;
+);
+
+brake_curve = slider6;
+release_duration_sec = max(slider7 * 0.001, 0.001);
+release_behavior = slider8;
+release_curve_type = slider9;
+gap_duration_sec = slider11 * 0.001;
+out_gain = exp(slider13 * 0.1151292546497022842);
+wet_mix = slider14 * 0.01;
+dry_mix = 1.0 - wet_mix;
+
+@block
+while (midirecv(m_offset, m_msg1, m_msg2, m_msg3))
+(
+  (slider12 > 0) ? (
+    m_status = m_msg1 & 240;
+    m_note = m_msg2;
+    m_vel = m_msg3;
+
+    // Mode 1: Any note triggers Brake
+    (slider12 == 1) ? (
+      (m_status == 144 && m_vel > 0) ? (
+        slider1 = 1;
+        sliderchange(slider1);
+      );
+      (m_status == 128 || (m_status == 144 && m_vel == 0)) ? (
+        slider1 = 0;
+        sliderchange(slider1);
+      );
+    );
+
+    // Mode 2: Any note triggers Reverse
+    (slider12 == 2) ? (
+      (m_status == 144 && m_vel > 0) ? (
+        slider2 = 1;
+        sliderchange(slider2);
+      );
+      (m_status == 128 || (m_status == 144 && m_vel == 0)) ? (
+        slider2 = 0;
+        sliderchange(slider2);
+      );
+    );
+
+    // Mode 3: Dual Key Matrix (C4 = Brake, C#4 = Reverse)
+    (slider12 == 3) ? (
+      (m_status == 144 && m_vel > 0) ? (
+        (m_note == 60) ? ( slider1 = 1; sliderchange(slider1); );
+        (m_note == 61) ? ( slider2 = 1; sliderchange(slider2); );
+      );
+      (m_status == 128 || (m_status == 144 && m_vel == 0)) ? (
+        (m_note == 60) ? ( slider1 = 0; sliderchange(slider1); );
+        (m_note == 61) ? ( slider2 = 0; sliderchange(slider2); );
+      );
+    );
+  );
+  midisend(m_offset, m_msg1, m_msg2, m_msg3);
+);
+
+@sample
+in_L = spl0;
+in_R = spl1;
+
+// 1. Continuously record live audio into circular ring buffer
+buf_L[write_pos] = in_L;
+buf_R[write_pos] = in_R;
+write_pos = (write_pos + 1) % buf_len;
+
+// 2. Read triggers
+trig_brake = slider1;
+trig_rev = slider2;
+
+// 3. Handle Brake Trigger Transition (0 -> 1 Engage)
+(trig_brake == 1 && prev_brake == 0) ? (
+  state = 1; // Transition to BRAKING
+  brake_progress = 0.0;
+  brake_anchor = (write_pos - 8 + buf_len) % buf_len;
+  brake_phase = 0.0;
+  
+  // Trigger 10ms C0 smooth crossfade
+  xfade_active = 1;
+  xfade_pos = 0;
+  xfade_prev_L = last_wet_L;
+  xfade_prev_R = last_wet_R;
+);
+
+// Handle Brake Release Transition (1 -> 0 Release)
+(trig_brake == 0 && prev_brake == 1) ? (
+  (release_duration_sec > 0.005) ? (
+    state = 3; // Transition to SPINUP / RELEASE
+    spinup_progress = 0.0;
+  ) : (
+    state = (trig_rev == 1) ? 4 : 0;
+    current_speed = 1.0;
+  );
+  
+  xfade_active = 1;
+  xfade_pos = 0;
+  xfade_prev_L = last_wet_L;
+  xfade_prev_R = last_wet_R;
+);
+prev_brake = trig_brake;
+
+// 4. Handle Reverse Direction Toggle
+(trig_rev != prev_rev) ? (
+  prev_rev = trig_rev;
+  (trig_rev == 1) ? (
+    dir_sign = -1.0;
+    rev_timer = 0.0;
+    rev_base = (write_pos - 8 + buf_len) % buf_len;
+  ) : (
+    dir_sign = 1.0;
+  );
+  (state != 1 && state != 2 && state != 3) ? (
+    state = (trig_rev == 1) ? 4 : 0;
+  );
+  
+  xfade_active = 1;
+  xfade_pos = 0;
+  xfade_prev_L = last_wet_L;
+  xfade_prev_R = last_wet_R;
+);
+
+// 5. Audio State Processing
+(state == 0) ? (
+  // Normal Forward Play (Direct pass-through with zero latency)
+  current_speed = 1.0;
+  wet_L = in_L;
+  wet_R = in_R;
+) : (state == 4) ? (
+  // Continuous Reverse Play
+  current_speed = 1.0;
+  rev_timer += 1.0;
+  (rev_timer >= rev_win_samples) ? (
+    rev_timer -= rev_win_samples;
+    rev_base = (write_pos - 8 + buf_len) % buf_len;
+  );
+
+  r_pos = (rev_base - rev_timer + buf_len) % buf_len;
+  
+  // 6ms cosine crossfade at chunk boundaries
+  fade_samples = min(floor(sr * 0.006), floor(rev_win_samples * 0.15));
+  fade_val = 1.0;
+  (rev_timer < fade_samples) ? (
+    fade_val = 0.5 * (1.0 - cos(PI * rev_timer / fade_samples));
+  ) : (rev_timer > rev_win_samples - fade_samples) ? (
+    fade_val = 0.5 * (1.0 + cos(PI * (rev_timer - (rev_win_samples - fade_samples)) / fade_samples));
+  );
+
+  wet_L = read_buffer_hermite(buf_L, r_pos) * fade_val;
+  wet_R = read_buffer_hermite(buf_R, r_pos) * fade_val;
+) : (state == 1) ? (
+  // Deceleration Brake Active
+  brake_progress += dt / stop_duration_sec;
+  (brake_progress < 1.0) ? (
+    norm = brake_progress;
+    current_speed = pow(max(1.0 - norm, 0.0), brake_curve);
+
+    (trig_rev == 1) ? (
+      // Reverse Deceleration
+      rev_timer += current_speed;
+      (rev_timer >= rev_win_samples) ? (
+        rev_timer -= rev_win_samples;
+        rev_base = (write_pos - 8 + buf_len) % buf_len;
+      );
+      r_pos = (rev_base - rev_timer + buf_len) % buf_len;
+      wet_L = read_buffer_hermite(buf_L, r_pos);
+      wet_R = read_buffer_hermite(buf_R, r_pos);
+    ) : (
+      // Forward Deceleration
+      brake_phase += current_speed;
+      r_pos = (brake_anchor + brake_phase) % buf_len;
+      wet_L = read_buffer_hermite(buf_L, r_pos);
+      wet_R = read_buffer_hermite(buf_R, r_pos);
+    );
+
+    // Dynamic Tone Darkening (Loss of high frequencies with deceleration)
+    (slider10 == 1) ? (
+      cutoff = max(18000.0 * pow(current_speed, 1.2) + 60.0, 40.0);
+      lp_coeff = 1.0 - exp(-TWO_PI * cutoff * dt);
+      lp_state_L += lp_coeff * (wet_L - lp_state_L);
+      lp_state_R += lp_coeff * (wet_R - lp_state_R);
+      wet_L = lp_state_L;
+      wet_R = lp_state_R;
+    );
+
+    // Smooth amplitude taper
+    wet_L *= (1.0 - norm * 0.25);
+    wet_R *= (1.0 - norm * 0.25);
+  ) : (
+    // Stop complete
+    current_speed = 0.0;
+    (gap_duration_sec > 0.001) ? (
+      state = 2; // Pre-drop gap
+      wet_L = 0.0;
+      wet_R = 0.0;
+    ) : (
+      wet_L = 0.0;
+      wet_R = 0.0;
+    );
+  );
+) : (state == 2) ? (
+  // Silence Gap
+  current_speed = 0.0;
+  wet_L = 0.0;
+  wet_R = 0.0;
+) : (state == 3) ? (
+  // Release & Spin-Up Recovery
+  spinup_progress += dt / release_duration_sec;
+  (spinup_progress < 1.0) ? (
+    p = spinup_progress;
+    (release_curve_type == 0) ? (
+      current_speed = p;
+    ) : (release_curve_type == 1) ? (
+      current_speed = pow(p, 1.4);
+    ) : (
+      current_speed = 0.5 * (1.0 - cos(PI * p));
+    );
+
+    (trig_rev == 1) ? (
+      rev_timer += current_speed;
+      (rev_timer >= rev_win_samples) ? (
+        rev_timer -= rev_win_samples;
+        rev_base = (write_pos - 8 + buf_len) % buf_len;
+      );
+      r_pos = (rev_base - rev_timer + buf_len) % buf_len;
+      wet_L = read_buffer_hermite(buf_L, r_pos);
+      wet_R = read_buffer_hermite(buf_R, r_pos);
+    ) : (
+      brake_phase += current_speed;
+      r_pos = (brake_anchor + brake_phase) % buf_len;
+      wet_L = read_buffer_hermite(buf_L, r_pos);
+      wet_R = read_buffer_hermite(buf_R, r_pos);
+      (release_behavior == 0) ? (
+        // Snap to live: smooth equal-power blend into live input
+        fade_live = 0.5 * (1.0 - cos(PI * p));
+        wet_L = wet_L * (1.0 - fade_live) + in_L * fade_live;
+        wet_R = wet_R * (1.0 - fade_live) + in_R * fade_live;
+      );
+    );
+
+    // Dynamic Tone Recovery
+    (slider10 == 1) ? (
+      cutoff = max(18000.0 * pow(current_speed, 1.2) + 60.0, 40.0);
+      lp_coeff = 1.0 - exp(-TWO_PI * cutoff * dt);
+      lp_state_L += lp_coeff * (wet_L - lp_state_L);
+      lp_state_R += lp_coeff * (wet_R - lp_state_R);
+      wet_L = lp_state_L;
+      wet_R = lp_state_R;
+    );
+  ) : (
+    // Release complete -> Return to normal
+    current_speed = 1.0;
+    (trig_rev == 1) ? (
+      state = 4;
+    ) : (
+      state = 0;
+      wet_L = in_L;
+      wet_R = in_R;
+    );
+  );
+);
+
+// Apply 10ms smooth transition crossfade on mode switching
+(xfade_active) ? (
+  xf_weight = xfade_pos / xfade_len;
+  xf_fade = 0.5 * (1.0 - cos(PI * xf_weight));
+  wet_L = xfade_prev_L * (1.0 - xf_fade) + wet_L * xf_fade;
+  wet_R = xfade_prev_R * (1.0 - xf_fade) + wet_R * xf_fade;
+  xfade_pos += 1;
+  (xfade_pos >= xfade_len) ? (
+    xfade_active = 0;
+  );
+);
+
+// Store last wet outputs for C0 continuity
+last_wet_L = wet_L;
+last_wet_R = wet_R;
+
+// Soft tape saturation (Warm rounded peaks)
+wet_L = (wet_L / (1.0 + abs(wet_L) * 0.25)) * 1.05;
+wet_R = (wet_R / (1.0 + abs(wet_R) * 0.25)) * 1.05;
+
+// Output Routing & Mix
+out_L = (in_L * dry_mix + wet_L * wet_mix) * out_gain;
+out_R = (in_R * dry_mix + wet_R * wet_mix) * out_gain;
+
+// Peak Safety Soft Clipper (-3.0 dBFS Standard)
+max_val = max(abs(out_L), abs(out_R));
+(max_val > 0.7079) ? (
+  clip_scale = 0.7079 / max_val;
+  out_L *= clip_scale;
+  out_R *= clip_scale;
+);
+
+spl0 = out_L;
+spl1 = out_R;
+
+// Accumulate reel rotation angle
+reel_angle += dir_sign * current_speed * 0.008;
+(reel_angle > TWO_PI) ? ( reel_angle -= TWO_PI; );
+(reel_angle < -TWO_PI) ? ( reel_angle += TWO_PI; );
+
+@gfx 680 440
+// =========================================================================
+// MODERN OBSIDIAN & GOLD ANALOG TAPE TRANSPORT GUI
+// =========================================================================
+gfx_a = 1.0;
+w = gfx_w;
+h = gfx_h;
+
+// Fonts registration
+gfx_setfont(1, "Arial", 18, 'b');
+gfx_setfont(2, "Arial", 13, 0);
+gfx_setfont(3, "Arial", 15, 'b');
+gfx_setfont(4, "Arial", 11, 0);
+gfx_setfont(5, "Arial", 12, 0);
+
+// Background (Dark Obsidian Brushed Aluminum)
+gfx_r = 0.07; gfx_g = 0.08; gfx_b = 0.10;
+gfx_rect(0, 0, w, h);
+
+// Top Header Bar
+gfx_r = 0.11; gfx_g = 0.12; gfx_b = 0.15;
+gfx_rect(0, 0, w, 56);
+gfx_r = 0.18; gfx_g = 0.20; gfx_b = 0.25;
+gfx_line(0, 56, w, 56);
+
+// Header Brand & Title
+gfx_r = 0.96; gfx_g = 0.72; gfx_b = 0.00; // Manchester Gold Signature
+gfx_setfont(1);
+gfx_x = 24; gfx_y = 17;
+gfx_drawstr("CURRENARI SOUNDS");
+
+gfx_r = 0.65; gfx_g = 0.70; gfx_b = 0.78;
+gfx_setfont(2);
+gfx_x = 220; gfx_y = 20;
+gfx_drawstr("|  TAPE STOP & REVERSE");
+
+// Live Velocity Speed Gauge
+gfx_x = w - 165; gfx_y = 19;
+gfx_r = 0.50; gfx_g = 0.55; gfx_b = 0.65;
+gfx_drawstr("SPD: ");
+(state == 0 || state == 4) ? (
+  gfx_r = (slider2 == 1) ? 0.00 : 0.30;
+  gfx_g = (slider2 == 1) ? 0.80 : 0.85;
+  gfx_b = (slider2 == 1) ? 0.95 : 0.45;
+) : (state == 1) ? (
+  gfx_r = 0.96; gfx_g = 0.72; gfx_b = 0.00; // Amber Deceleration
+) : (state == 2) ? (
+  gfx_r = 0.90; gfx_g = 0.20; gfx_b = 0.20; // Red Stopped
+) : (
+  gfx_r = 0.40; gfx_g = 0.70; gfx_b = 1.00; // Sky Blue Acceleration
+);
+gfx_printf("%s%.2fx", (slider2 == 1) ? "-" : "+", current_speed);
+
+// =========================================================================
+// HIGH-VISIBILITY TRANSPORT STATUS BANNER (Center)
+// =========================================================================
+banner_w = 340;
+banner_h = 28;
+banner_x = (w - banner_w) * 0.5;
+banner_y = 66;
+
+(state == 0) ? (
+  // Normal Forward Play
+  gfx_r = 0.10; gfx_g = 0.18; gfx_b = 0.12;
+  gfx_rect(banner_x, banner_y, banner_w, banner_h);
+  gfx_r = 0.30; gfx_g = 0.85; gfx_b = 0.45;
+  gfx_rect(banner_x, banner_y, banner_w, 2);
+  gfx_rect(banner_x, banner_y + banner_h - 2, banner_w, 2);
+  gfx_setfont(3);
+  gfx_x = banner_x + 50; gfx_y = banner_y + 6;
+  gfx_drawstr("PLAYING (FORWARD 1.00x)");
+) : (state == 1) ? (
+  // Motor Decelerating
+  gfx_r = 0.25; gfx_g = 0.18; gfx_b = 0.05;
+  gfx_rect(banner_x, banner_y, banner_w, banner_h);
+  gfx_r = 0.96; gfx_g = 0.72; gfx_b = 0.00;
+  gfx_rect(banner_x, banner_y, banner_w, 2);
+  gfx_rect(banner_x, banner_y + banner_h - 2, banner_w, 2);
+  gfx_setfont(3);
+  gfx_x = banner_x + 38; gfx_y = banner_y + 6;
+  gfx_drawstr("MOTOR BRAKING (DECELERATING)");
+) : (state == 2) ? (
+  // Motor Stopped
+  gfx_r = 0.25; gfx_g = 0.08; gfx_b = 0.08;
+  gfx_rect(banner_x, banner_y, banner_w, banner_h);
+  gfx_r = 0.90; gfx_g = 0.20; gfx_b = 0.20;
+  gfx_rect(banner_x, banner_y, banner_w, 2);
+  gfx_rect(banner_x, banner_y + banner_h - 2, banner_w, 2);
+  gfx_setfont(3);
+  gfx_x = banner_x + 72; gfx_y = banner_y + 6;
+  gfx_drawstr("MOTOR HALTED (STOPPED)");
+) : (state == 3) ? (
+  // Spinning Up
+  gfx_r = 0.08; gfx_g = 0.16; gfx_b = 0.24;
+  gfx_rect(banner_x, banner_y, banner_w, banner_h);
+  gfx_r = 0.40; gfx_g = 0.70; gfx_b = 1.00;
+  gfx_rect(banner_x, banner_y, banner_w, 2);
+  gfx_rect(banner_x, banner_y + banner_h - 2, banner_w, 2);
+  gfx_setfont(3);
+  gfx_x = banner_x + 55; gfx_y = banner_y + 6;
+  gfx_drawstr("SPINNING UP (RELEASING)");
+) : (
+  // Reverse Play
+  gfx_r = 0.05; gfx_g = 0.18; gfx_b = 0.22;
+  gfx_rect(banner_x, banner_y, banner_w, banner_h);
+  gfx_r = 0.00; gfx_g = 0.85; gfx_b = 0.95;
+  gfx_rect(banner_x, banner_y, banner_w, 2);
+  gfx_rect(banner_x, banner_y + banner_h - 2, banner_w, 2);
+  gfx_setfont(3);
+  gfx_x = banner_x + 48; gfx_y = banner_y + 6;
+  gfx_drawstr("REVERSE PLAYBACK ACTIVE");
+);
+
+// =========================================================================
+// DUAL TAPE REEL TRANSPORT ANIMATION
+// =========================================================================
+reel_center_y = 195;
+reel_radius = 66;
+reel1_x = w * 0.32;
+reel2_x = w * 0.68;
+
+draw_tape_reel(reel1_x, reel_center_y, reel_radius, reel_angle, 0);
+draw_tape_reel(reel2_x, reel_center_y, reel_radius, -reel_angle * 1.05, 1);
+
+// Tape Path Line between Reels
+gfx_r = 0.35; gfx_g = 0.26; gfx_b = 0.18;
+gfx_line(reel1_x, reel_center_y + reel_radius - 8, reel2_x, reel_center_y + reel_radius - 8);
+gfx_line(reel1_x, reel_center_y + reel_radius - 9, reel2_x, reel_center_y + reel_radius - 9);
+
+// Center Tape Head Block
+head_w = 70; head_h = 24;
+head_x = (w - head_w) * 0.5;
+head_y = reel_center_y + reel_radius - 20;
+gfx_r = 0.20; gfx_g = 0.22; gfx_b = 0.26;
+gfx_rect(head_x, head_y, head_w, head_h);
+gfx_r = (state == 1 || state == 2) ? 0.96 : (state == 4) ? 0.00 : 0.85;
+gfx_g = (state == 1 || state == 2) ? 0.20 : (state == 4) ? 0.85 : 0.70;
+gfx_b = (state == 1 || state == 2) ? 0.20 : (state == 4) ? 0.95 : 0.20;
+gfx_rect(head_x + 23, head_y + 4, 24, 6);
+
+// =========================================================================
+// INTERACTIVE DUAL BUTTON PANEL (BRAKE + REVERSE)
+// =========================================================================
+btn_w = 185;
+btn_h = 52;
+btn_gap = 26;
+btn_total_w = (btn_w * 2) + btn_gap;
+btn1_x = (w - btn_total_w) * 0.5;
+btn2_x = btn1_x + btn_w + btn_gap;
+btn_y = 295;
+
+// Mouse Detection
+is_mouse_down = (mouse_cap & 1) != 0;
+mouse_in_btn1 = (mouse_x >= btn1_x && mouse_x <= btn1_x + btn_w && mouse_y >= btn_y && mouse_y <= btn_y + btn_h);
+mouse_in_btn2 = (mouse_x >= btn2_x && mouse_x <= btn2_x + btn_w && mouse_y >= btn_y && mouse_y <= btn_y + btn_h);
+
+// Button 1 (Brake Click Toggle)
+(is_mouse_down && mouse_in_btn1 && !prev_mouse_cap1) ? (
+  slider1 = (slider1 == 1) ? 0 : 1;
+  sliderchange(slider1);
+  slider_automate(1);
+);
+prev_mouse_cap1 = (is_mouse_down && mouse_in_btn1);
+
+// Button 2 (Reverse Click Toggle)
+(is_mouse_down && mouse_in_btn2 && !prev_mouse_cap2) ? (
+  slider2 = (slider2 == 1) ? 0 : 1;
+  sliderchange(slider2);
+  slider_automate(2);
+);
+prev_mouse_cap2 = (is_mouse_down && mouse_in_btn2);
+
+// --- DRAW BUTTON 1: BRAKE ---
+(slider1 == 1) ? (
+  // Active Brake (Solid Crimson Red Glow)
+  gfx_r = 0.85; gfx_g = 0.20; gfx_b = 0.18;
+  gfx_rect(btn1_x, btn_y, btn_w, btn_h);
+  gfx_r = 1.0; gfx_g = 0.95; gfx_b = 0.95;
+  gfx_setfont(3);
+  gfx_x = btn1_x + 18; gfx_y = btn_y + 17;
+  gfx_drawstr("BRAKE [ACTIVE - STOP]");
+) : (
+  // Idle Brake (Obsidian with Gold Accent)
+  gfx_r = mouse_in_btn1 ? 0.18 : 0.13;
+  gfx_g = mouse_in_btn1 ? 0.20 : 0.15;
+  gfx_b = mouse_in_btn1 ? 0.24 : 0.18;
+  gfx_rect(btn1_x, btn_y, btn_w, btn_h);
+  gfx_r = mouse_in_btn1 ? 0.96 : 0.60;
+  gfx_g = mouse_in_btn1 ? 0.72 : 0.50;
+  gfx_b = mouse_in_btn1 ? 0.00 : 0.20;
+  gfx_rect(btn1_x, btn_y, btn_w, 2);
+  gfx_rect(btn1_x, btn_y + btn_h - 2, btn_w, 2);
+  gfx_rect(btn1_x, btn_y, 2, btn_h);
+  gfx_rect(btn1_x + btn_w - 2, btn_y, 2, btn_h);
+
+  gfx_r = 0.92; gfx_g = 0.95; gfx_b = 1.00;
+  gfx_setfont(3);
+  gfx_x = btn1_x + 28; gfx_y = btn_y + 17;
+  gfx_drawstr("ENGAGE BRAKE");
+);
+
+// --- DRAW BUTTON 2: REVERSE ---
+(slider2 == 1) ? (
+  // Active Reverse (Solid Electric Cyan Glow)
+  gfx_r = 0.00; gfx_g = 0.55; gfx_b = 0.85;
+  gfx_rect(btn2_x, btn_y, btn_w, btn_h);
+  gfx_r = 0.90; gfx_g = 0.98; gfx_b = 1.00;
+  gfx_setfont(3);
+  gfx_x = btn2_x + 14; gfx_y = btn_y + 17;
+  gfx_drawstr("REVERSE [ACTIVE - REV]");
+) : (
+  // Idle Reverse (Obsidian with Cyan Accent)
+  gfx_r = mouse_in_btn2 ? 0.18 : 0.13;
+  gfx_g = mouse_in_btn2 ? 0.20 : 0.15;
+  gfx_b = mouse_in_btn2 ? 0.24 : 0.18;
+  gfx_rect(btn2_x, btn_y, btn_w, btn_h);
+  gfx_r = mouse_in_btn2 ? 0.00 : 0.35;
+  gfx_g = mouse_in_btn2 ? 0.80 : 0.45;
+  gfx_b = mouse_in_btn2 ? 0.95 : 0.60;
+  gfx_rect(btn2_x, btn_y, btn_w, 2);
+  gfx_rect(btn2_x, btn_y + btn_h - 2, btn_w, 2);
+  gfx_rect(btn2_x, btn_y, 2, btn_h);
+  gfx_rect(btn2_x + btn_w - 2, btn_y, 2, btn_h);
+
+  gfx_r = 0.92; gfx_g = 0.95; gfx_b = 1.00;
+  gfx_setfont(3);
+  gfx_x = btn2_x + 32; gfx_y = btn_y + 17;
+  gfx_drawstr("FLIP REVERSE");
+);
+
+// Click hint below buttons
+gfx_r = 0.45; gfx_g = 0.50; gfx_b = 0.60;
+gfx_setfont(4);
+gfx_x = (w - 420) * 0.5; gfx_y = btn_y + btn_h + 9;
+gfx_drawstr("Click Brake to toggle stop/release | Click Reverse to flip spool | MIDI Automatable");
+
+// Bottom Status Footer Bar
+gfx_r = 0.11; gfx_g = 0.12; gfx_b = 0.15;
+gfx_rect(0, h - 36, w, 36);
+gfx_r = 0.18; gfx_g = 0.20; gfx_b = 0.25;
+gfx_line(0, h - 36, w, h - 36);
+
+gfx_r = 0.50; gfx_g = 0.55; gfx_b = 0.62;
+gfx_setfont(5);
+gfx_x = 24; gfx_y = h - 23;
+gfx_printf("STOP: %d ms | RELEASE: %d ms (%s) | REV WIN: %d ms | CURVE: %.1f", floor(stop_duration_sec * 1000), floor(release_duration_sec * 1000), (release_behavior == 0) ? "Snap" : "Resume", floor(rev_win_samples * dt * 1000), brake_curve);
