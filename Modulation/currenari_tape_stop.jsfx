@@ -1,4 +1,28 @@
 desc: Tape Stop & Reverse Decelerator (CURS)
+author: Currenari Sounds
+version: 1.4.0
+screenshot: Screenshot https://github.com/currenari-dev/CURS-jsfx/blob/main/screenshot_tape_stop.png
+about:
+  # Tape Stop & Reverse Decelerator (CURS)
+
+  Studio-grade analog tape stop, continuous reverse rewinder, and motor deceleration processor by Currenari Sounds.
+
+  ## Key Features:
+  - **Physical Motor Deceleration:** Authentically modeled analog reel-to-reel tape and vinyl turntable motor deceleration curves.
+  - **Adjustable Inertia:** Linear (1.0), Heavy 1/2" Reel Tape (2.2), Heavy Vinyl Turntable Platter (3.5).
+  - **Variable Stop Duration:** Free millisecond mode (50 ms to 5,000 ms) or project tempo-synced divisions (1/16 to 4 Bars).
+  - **Continuous Musical Reverse:** Seamless backwards audio playback with selectable chunk divisions (1/4 Beat to 4 Bars) and 6ms raised-cosine anti-click crossfading.
+  - **Spin-Up Release Engine:** Smooth motor acceleration recovery upon disengaging the brake (0 ms to 3,000 ms) with Linear, Natural Exponential, and S-Curve profiles.
+  - **Release Behavior:** Snap to Live Input vs Continuous Buffer Resume.
+  - **Dynamic Tape Head Modeling:** High-frequency loss sweeps from 18 kHz down to 40 Hz tracking motor speed.
+  - **Obsidian & Gold Animated GUI:** Dual rotating tape reels, live signed velocity speed gauge (+1.00x / -1.00x), central transport state banner, and tactile latching controls.
+  - **MIDI Integration:** Assignable MIDI trigger matrix for Brake and Reverse activation.
+  - **Output Safety:** True Peak safety limiter calibrated to <= -3.0 dBFS ceiling.
+  - **Cross-Platform Compatibility:** Full support for Linux, macOS, and Windows across all sample rates (44.1 kHz - 192 kHz).
+
+  Website & Audio Demos: https://currenari.com
+
+desc: Tape Stop & Reverse Decelerator (CURS)
 // @author Currenari Sounds
 // @version 1.4.0
 // @changelog
